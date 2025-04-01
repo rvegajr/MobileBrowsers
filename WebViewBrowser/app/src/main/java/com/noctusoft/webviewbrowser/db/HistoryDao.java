@@ -36,7 +36,7 @@ public interface HistoryDao {
     /**
      * Delete all history entries
      */
-    @Query("DELETE FROM history_entries")
+    @Query("DELETE FROM history")
     void deleteAll();
     
     /**
@@ -44,7 +44,7 @@ public interface HistoryDao {
      * 
      * @return List of history entries
      */
-    @Query("SELECT * FROM history_entries ORDER BY timestamp DESC")
+    @Query("SELECT * FROM history ORDER BY timestamp DESC")
     List<HistoryEntry> getAllHistoryEntries();
     
     /**
@@ -52,7 +52,7 @@ public interface HistoryDao {
      * 
      * @return LiveData list of history entries
      */
-    @Query("SELECT * FROM history_entries ORDER BY timestamp DESC")
+    @Query("SELECT * FROM history ORDER BY timestamp DESC")
     LiveData<List<HistoryEntry>> getAllHistoryEntriesLive();
     
     /**
@@ -61,7 +61,7 @@ public interface HistoryDao {
      * @param query The search query
      * @return List of matching history entries
      */
-    @Query("SELECT * FROM history_entries WHERE title LIKE '%' || :query || '%' OR url LIKE '%' || :query || '%' ORDER BY timestamp DESC")
+    @Query("SELECT * FROM history WHERE title LIKE '%' || :query || '%' OR url LIKE '%' || :query || '%' ORDER BY timestamp DESC")
     List<HistoryEntry> searchHistory(String query);
 
     /**
@@ -70,6 +70,6 @@ public interface HistoryDao {
      * @param url The URL to search for
      * @return The history entry if found
      */
-    @Query("SELECT * FROM history_entries WHERE url = :url LIMIT 1")
+    @Query("SELECT * FROM history WHERE url = :url LIMIT 1")
     HistoryEntry getEntryByUrl(String url);
 }

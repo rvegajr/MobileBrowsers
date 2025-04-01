@@ -16,6 +16,7 @@ import androidx.fragment.app.DialogFragment;
 
 import com.noctusoft.webviewbrowser.CredentialsManager;
 import com.noctusoft.webviewbrowser.R;
+import com.noctusoft.webviewbrowser.model.Credentials;
 
 /**
  * Dialog fragment for managing website credentials.
@@ -106,10 +107,10 @@ public class CredentialsDialogFragment extends DialogFragment {
             return;
         }
         
-        String[] credentials = credentialsManager.getCredentials(domain);
+        Credentials credentials = credentialsManager.loadCredentials(domain);
         if (credentials != null) {
-            usernameEditText.setText(credentials[0]);
-            passwordEditText.setText(credentials[1]);
+            usernameEditText.setText(credentials.getUsername());
+            passwordEditText.setText(credentials.getPassword());
         }
     }
     
@@ -148,7 +149,7 @@ public class CredentialsDialogFragment extends DialogFragment {
             return;
         }
         
-        if (credentialsManager.removeCredentials(domain)) {
+        if (credentialsManager.deleteCredentials(domain)) {
             Toast.makeText(getContext(), R.string.credentials_deleted, Toast.LENGTH_SHORT).show();
             usernameEditText.setText("");
             passwordEditText.setText("");

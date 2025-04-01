@@ -2,6 +2,7 @@ package com.noctusoft.webviewbrowser.model;
 
 import androidx.annotation.NonNull;
 import androidx.room.Entity;
+import androidx.room.Ignore;
 import androidx.room.PrimaryKey;
 import androidx.room.TypeConverters;
 
@@ -35,6 +36,7 @@ public class HistoryEntry {
      * @param url The URL of the page.
      * @param title The title of the page.
      */
+    @Ignore
     public HistoryEntry(@NonNull String url, String title) {
         this(url, title, new Date(), null);
     }
