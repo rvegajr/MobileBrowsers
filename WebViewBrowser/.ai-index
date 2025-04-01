@@ -1,0 +1,169 @@
+# WebViewBrowser AI Development Index
+
+## Project Overview
+- **Name**: WebViewBrowser
+- **Type**: Android Application
+- **Description**: An Android web browser application using WebView with developer tools and credential management
+- **Equivalent Project**: WebKitBrowser (iOS)
+- **Automation**: Fastlane for Android
+
+## Project Structure
+
+```
+WebViewBrowser/
+├── app/                                 # Application module
+│   ├── src/                             # Source code
+│   │   ├── main/                        # Main source set
+│   │   │   ├── java/                    # Java code
+│   │   │   │   └── com/noctusoft/webviewbrowser/  # Package
+│   │   │   ├── res/                     # Resources
+│   │   │   └── AndroidManifest.xml      # App configuration
+│   │   └── test/                        # Test source set
+│   ├── build.gradle                     # App module build config
+├── fastlane/                            # Fastlane configuration
+├── gradle/                              # Gradle wrapper files
+├── build.gradle                         # Project build config
+├── settings.gradle                      # Project settings
+└── README.md                            # Project documentation
+```
+
+## Core Features
+- Full-featured web browsing using WebView
+- Navigation controls (back, forward, refresh)
+- URL validation and history tracking
+- Developer tools (HTML source viewer, element inspection)
+- Secure credential storage using Android KeyStore
+- Variable management for form filling
+
+## Technical Stack
+- **Minimum SDK**: API 21 (Android 5.0)
+- **Target SDK**: API 33 (Android 13)
+- **Language**: Java
+- **Build System**: Gradle
+- **Automation**: Fastlane
+- **Key Libraries**:
+  - AndroidX Core and AppCompat
+  - Material Design Components
+  - Room Database for history storage
+  - Android KeyStore for secure storage
+
+## AI Development Guidelines
+- Use this index file as a reference for project structure and standards
+- Follow established patterns for Activity/Fragment creation
+- Maintain separation of concerns between UI and business logic
+- Follow Android material design guidelines for UI components
+- Ensure security best practices for credential storage
+
+## Core Components and Implementation
+
+* `BrowserActivity.java` - Main browser activity with WebView integration
+* `CredentialsManager.java` - Manages secure storage of credentials using Android KeyStore
+* `HistoryManager.java` - Handles browsing history using Room database
+* `VariablesManager.java` - Manages form filling variables
+
+## Project Structure
+
+```java
+com.noctusoft.webviewbrowser/
+├── BrowserActivity.java       // Main browser UI and WebView implementation
+├── CredentialsManager.java    // Secure credential storage
+├── HistoryManager.java        // History management with Room database
+├── VariablesManager.java      // Variable management for form filling
+├── model/
+│   ├── BrowsingSession.java   // Current browsing session model
+│   ├── Credentials.java       // Credential storage model
+│   ├── DateConverter.java     // Room type converter for dates
+│   └── HistoryEntry.java      // History entry for Room database
+└── ui/
+    ├── HistoryListActivity.java // History browsing and management
+    └── VariableManagerActivity.java // Variable management UI
+```
+
+## Feature Implementation Guidelines
+
+* WebView Configuration - Enable JavaScript, DOM storage, file access, and developer tools
+
+* Security Best Practices
+  * Use Android KeyStore for credential encryption
+  * Implement proper URL validation
+  * Sanitize JavaScript inputs/outputs
+  * Follow secure WebView configuration guidelines
+
+* UI Implementation
+  * Follow Material Design principles
+  * Support both landscape and portrait orientations
+  * Provide accessibility support
+  * Implement proper error handling and user feedback
+
+* Database Operations
+  * Use Room for all database operations
+  * Implement proper background threading for database access
+  * Include migration strategies for future updates
+  * Add indexes for frequently queried fields
+
+* Developer Tools
+  * Implement JavaScript console logging
+  * Provide DOM inspection capabilities
+  * Include source code viewing
+  * Enable remote debugging where appropriate
+
+## Testing Strategy
+
+* Unit Tests
+  * Test credential encryption/decryption
+  * Validate URL parsing and normalization
+  * Verify history database operations
+  * Test variable substitution in forms
+
+* Integration Tests 
+  * Verify WebView-JavaScript interactions
+  * Test saving and loading credentials
+  * Validate history tracking across sessions
+  * Test navigation between activities
+
+## Performance Considerations
+
+* Optimize WebView rendering
+* Implement efficient database queries
+* Use background threads for I/O operations
+* Minimize memory usage for history storage
+* Implement proper cache management
+
+## Fastlane Integration
+
+* Set up automatic builds
+* Configure testing lanes
+* Implement deployment automation
+* Set up Firebase App Distribution for testing
+
+## Fastlane Commands
+- `fastlane android test` - Run all tests
+- `fastlane android build_debug` - Build debug APK
+- `fastlane android build_release` - Build release APK
+- `fastlane android beta` - Deploy to Play Store Beta track
+
+## AI-Assisted Development Areas
+- UI component creation and styling
+- WebView configuration and optimization
+- Security implementation for credential storage
+- Data persistence strategies
+- Performance optimization
+
+## Testing Strategy
+- Unit tests for managers (CredentialsManager, HistoryManager, VariablesManager)
+- Instrumentation tests for UI components
+- WebView functionality tests
+
+## TODO List
+- Create initial project structure 
+- Implement core WebView browser functionality
+- Add history tracking and management
+- Create secure credential storage system
+- Implement variable management for forms
+- Add developer tools functionality
+- Set up Fastlane automation
+
+## Resources
+- [WebView Documentation](https://developer.android.com/reference/android/webkit/WebView)
+- [Android KeyStore Documentation](https://developer.android.com/training/articles/keystore)
+- [Fastlane Android Documentation](https://docs.fastlane.tools/platforms/android/)
