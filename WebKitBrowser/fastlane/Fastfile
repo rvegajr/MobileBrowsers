@@ -1,0 +1,87 @@
+# Customise this file, documentation can be found here:
+# https://docs.fastlane.tools/
+
+default_platform(:ios)
+
+platform :ios do
+  desc "Resolve and download all Swift packages"
+  lane :resolve_packages do
+    # Ensure project is up to date first
+    sh("cd .. && xcodegen generate")
+    
+    # Clean DerivedData to ensure clean state
+    sh("cd .. && rm -rf ~/Library/Developer/Xcode/DerivedData/WebKitBrowser-*")
+    
+    # Resolve Swift packages
+    sh("cd .. && xcodebuild -resolvePackageDependencies -project WebKitBrowser.xcodeproj")
+  end
+
+  desc "Run all tests"
+  lane :test do
+    resolve_packages
+    scan(
+      scheme: "WebKitBrowser",
+      devices: ["iPhone 14"],
+      clean: true
+    )
+  end
+
+  desc "Build and run development version"
+  lane :build_dev do
+    resolve_packages
+    
+    # Build and run in simulator
+    sh("cd .. && xcodebuild -scheme WebKitBrowser -sdk iphonesimulator -configuration Debug -destination 'platform=iOS Simulator,name=iPhone 14,OS=latest' -allowProvisioningUpdates build")
+  end
+
+  desc "Build release version"
+  lane :build_release do
+    resolve_packages
+    
+    # Build using xcodebuild directly
+    sh("cd .. && xcodebuild -scheme WebKitBrowser -sdk iphonesimulator -configuration Release -destination 'platform=iOS Simulator,name=iPhone 14,OS=latest' -allowProvisioningUpdates build")
+  end
+
+  desc "Deploy to TestFlight"
+  lane :deploy_testflight do
+    # Ensure we're on the right branch
+    ensure_git_branch(branch: 'main')
+    
+    # Increment build number
+    increment_build_number
+    
+    # Build the app
+    build_release
+    
+    # Upload to TestFlight
+    pilot(
+      skip_waiting_for_build_processing: true
+    )
+    
+    # Push the version bump
+    commit_version_bump(
+      message: "Build version bump [ci skip]"
+    )
+    push_to_git_remote
+  end
+
+  desc "Deploy to App Store"
+  lane :deploy_appstore do
+    # Ensure we're on the right branch
+    ensure_git_branch(branch: 'main')
+    
+    # Capture screenshots
+    snapshot
+    
+    # Build the app
+    build_release
+    
+    # Upload to App Store
+    deliver(
+      submit_for_review: true,
+      force: true,
+      skip_screenshots: false,
+      skip_metadata: false
+    )
+  end
+end

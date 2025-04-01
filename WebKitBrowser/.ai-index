@@ -1,0 +1,221 @@
+# WebKit Browser AI Development Index
+
+Last Updated: 2025-03-31
+
+## Project Structure
+
+```plaintext
+WebKitBrowser/
+├── Sources/                          # Source code files
+│   ├── BrowserViewController.swift   # Main browser UI and logic
+│   ├── CredentialsManager.swift      # Keychain credential management
+│   ├── AppDelegate.swift            # Application lifecycle
+│   ├── SceneDelegate.swift          # UI scene management
+│   └── Info.plist                   # App configuration
+├── Resources/                        # Interface and asset files
+│   ├── LaunchScreen.storyboard      # Launch screen UI
+│   └── Main.storyboard             # Main interface
+├── Tests/                           # Unit and UI tests
+│   └── BrowserViewControllerTests.swift
+├── fastlane/                        # Fastlane configuration
+│   ├── Fastfile                     # Fastlane lanes
+│   ├── Appfile                      # App configuration
+│   └── Scanfile                     # Test configuration
+└── project.yml                      # XcodeGen project configuration
+```
+
+## Development Tools
+
+* XcodeGen: Project generation
+* Fastlane: CI/CD automation
+* SwiftLint: Code style enforcement
+* Cocoapods: Dependency management (if needed)
+
+## Automation Scripts
+
+### Project Setup
+
+```bash
+#!/bin/zsh
+function setup_project() {
+    # Install required tools
+    brew install xcodegen
+    brew install fastlane
+    brew install swiftlint
+    
+    # Generate project
+    xcodegen generate
+    
+    # Initialize fastlane
+    fastlane init
+}
+```
+
+### Build Process
+
+```bash
+#!/bin/zsh
+function build_project() {
+    # Regenerate project
+    xcodegen generate
+    
+    # Run tests
+    fastlane test
+    
+    # Build for development
+    fastlane build_dev
+}
+```
+
+## Fastlane Configuration
+
+### Available Lanes
+
+* test: Run unit and UI tests
+* build_dev: Build development version
+* build_release: Build release version
+* deploy_testflight: Deploy to TestFlight
+* deploy_appstore: Deploy to App Store
+
+## Code Analysis
+
+### Key Components
+
+1. BrowserViewController
+   * Web browsing functionality
+   * Navigation controls
+   * Developer tools integration
+   * Credential management UI
+
+2. CredentialsManager
+   * Keychain integration
+   * Secure credential storage
+   * Domain-based management
+
+3. Developer Tools
+   * DOM inspection
+   * Console output
+   * Network monitoring
+
+## Testing Strategy
+
+### Unit Tests
+
+* Navigation functionality
+* Credential management
+* Developer tools
+* UI state management
+
+### UI Tests
+
+* User interaction flows
+* Web navigation
+* Form filling
+* Developer tools usage
+
+## AI Helpers
+
+### Code Generation
+
+```python
+# Template for generating new view controllers
+def generate_view_controller(name):
+    template = f"""
+    import UIKit
+    
+    class {name}ViewController: UIViewController {{
+        // MARK: - Properties
+        
+        // MARK: - Lifecycle
+        
+        override func viewDidLoad() {{
+            super.viewDidLoad()
+            setupUI()
+        }}
+        
+        // MARK: - UI Setup
+        
+        private func setupUI() {{
+        }}
+    }}
+    """
+    return template
+```
+
+### Test Generation
+
+```python
+# Template for generating unit tests
+def generate_unit_tests(class_name):
+    template = f"""
+    import XCTest
+    @testable import WebKitBrowser
+    
+    class {class_name}Tests: XCTestCase {{
+        var sut: {class_name}!
+        
+        override func setUpWithError() throws {{
+            super.setUp()
+            sut = {class_name}()
+        }}
+        
+        override func tearDownWithError() throws {{
+            sut = nil
+            super.tearDown()
+        }}
+        
+        func testInitialState() {{
+            XCTAssertNotNil(sut)
+        }}
+    }}
+    """
+    return template
+```
+
+## Project Commands
+
+### Setup
+
+```bash
+# Initial setup
+brew install xcodegen fastlane swiftlint
+xcodegen generate
+fastlane init
+
+# Run tests
+fastlane test
+
+# Build development
+fastlane build_dev
+
+# Deploy to TestFlight
+fastlane deploy_testflight
+```
+
+## Security Considerations
+
+* Keychain access
+* HTTPS enforcement
+* Credential encryption
+* Privacy permissions
+
+## Performance Monitoring
+
+* Memory usage
+* Network requests
+* UI responsiveness
+* WebView performance
+
+## Future Enhancements
+
+* Enhanced developer tools
+* Password manager integration
+* Browser extensions support
+* Improved security features
+
+## Notes
+
+* Always regenerate project using XcodeGen after modifying project.yml
+* Run SwiftLint before committing changes
+* Update fastlane configuration for new features
+* Keep AI index in sync with project changes

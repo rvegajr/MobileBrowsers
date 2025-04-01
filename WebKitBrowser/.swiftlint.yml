@@ -1,0 +1,55 @@
+included:
+  - Sources
+  - Tests
+excluded:
+  - Pods
+  - .build
+
+# Rules
+disabled_rules:
+  - trailing_whitespace
+  - todo
+
+opt_in_rules:
+  - empty_count
+  - missing_docs
+  - force_unwrapping
+
+# Customized rules
+line_length:
+  warning: 120
+  error: 200
+
+function_body_length:
+  warning: 50
+  error: 100
+
+type_body_length:
+  warning: 300
+  error: 500
+
+file_length:
+  warning: 500
+  error: 1000
+
+cyclomatic_complexity:
+  warning: 10
+  error: 20
+
+# Naming rules
+identifier_name:
+  min_length:
+    warning: 2
+  excluded:
+    - id
+    - URL
+    - x
+    - y
+
+# Custom rules
+custom_rules:
+  no_direct_print:
+    name: "No Direct Print"
+    regex: "print\\s*\\("
+    message: "Avoid using print(), use a logger instead"
+    severity: warning
