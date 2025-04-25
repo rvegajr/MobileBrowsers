@@ -9,9 +9,9 @@
         app:showAsAction="never" />
     
     <item
-        android:id="@+id/action_view_source"
+        android:id="@+id/action_dev_tools"
         android:orderInCategory="100"
-        android:title="@string/action_view_source"
+        android:title="@string/action_dev_tools"
         app:showAsAction="never" />
     
     <item

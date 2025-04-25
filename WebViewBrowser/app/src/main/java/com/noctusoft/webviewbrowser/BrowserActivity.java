@@ -94,6 +94,8 @@ public class BrowserActivity extends AppCompatActivity {
     private static final int MAX_CLIPBOARD_SIZE = 393216; // ~384KB limit for clipboard
     private static final int PERMISSION_REQUEST_CODE = 1001;
     private static final int SELECTOR_TIMEOUT = 5000; // 5 seconds timeout for element selection
+    private static final int DEV_TOOLS_SOURCE = 0;
+    private static final int DEV_TOOLS_CONSOLE = 1;
 
     // UI components
     private WebView webView;
@@ -406,6 +408,21 @@ public class BrowserActivity extends AppCompatActivity {
                 }
             });
         }
+        
+        @JavascriptInterface
+        public void onPageFullyLoaded() {
+            Log.d(TAG, "Page fully loaded callback from JavaScript");
+            new Handler(Looper.getMainLooper()).post(() -> {
+                if (!isFinishing()) {
+                    pageLoaded = true;
+                    showLoading(false);
+                    
+                    if (timeoutHandler != null && timeoutRunnable != null) {
+                        timeoutHandler.removeCallbacks(timeoutRunnable);
+                    }
+                }
+            });
+        }
     }
 
     /**
@@ -531,9 +548,141 @@ public class BrowserActivity extends AppCompatActivity {
             // Update the source code display
             refreshSourceCode();
             
+            // Setup tabs and content
+            setupDevToolsTabs();
+            
+            // Make it visible
             devToolsView.setVisibility(View.VISIBLE);
             isDevToolsVisible = true;
             devToolsButton.setImageResource(android.R.drawable.ic_menu_close_clear_cancel);
+            
+            // Add a test log to verify console functionality
+            new Handler(Looper.getMainLooper()).postDelayed(() -> {
+                webView.evaluateJavascript(
+                    "console.log('Developer tools opened');" +
+                    "console.error('Test error message');" +
+                    "console.warn('Test warning message');", 
+                    null
+                );
+            }, 300);
+        }
+    }
+    
+    /**
+     * Sets up the tabs for the developer tools panel
+     */
+    private void setupDevToolsTabs() {
+        if (devToolsView == null) return;
+        
+        // Find the child views
+        View sourceView = null;
+        View consoleView = null;
+        
+        // Try to find the source view parent and console recycler view
+        for (int i = 0; i < devToolsView.getChildCount(); i++) {
+            View child = devToolsView.getChildAt(i);
+            if (child instanceof LinearLayout && ((LinearLayout)child).getOrientation() == LinearLayout.HORIZONTAL) {
+                // This is likely the tab layout
+                LinearLayout tabLayout = (LinearLayout)child;
+                
+                // Make sure the tab buttons are properly styled
+                for (int j = 0; j < tabLayout.getChildCount(); j++) {
+                    View tabView = tabLayout.getChildAt(j);
+                    if (tabView instanceof Button) {
+                        Button tabButton = (Button)tabView;
+                        
+                        // Set common button styles
+                        tabButton.setTextColor(Color.BLACK);
+                        tabButton.setBackgroundColor(Color.LTGRAY);
+                        
+                        // Handle Source tab
+                        if (tabButton.getText().toString().equals("Source")) {
+                            tabButton.setOnClickListener(v -> {
+                                // Show source, hide console
+                                if (sourceCodeText != null && sourceCodeText.getParent() != null) {
+                                    ((View)sourceCodeText.getParent().getParent()).setVisibility(View.VISIBLE);
+                                }
+                                if (consoleLogRecyclerView != null) {
+                                    consoleLogRecyclerView.setVisibility(View.GONE);
+                                }
+                                
+                                // Update tab styling
+                                tabButton.setBackgroundColor(Color.WHITE);
+                                
+                                // Find and update Console tab styling
+                                for (int k = 0; k < tabLayout.getChildCount(); k++) {
+                                    View otherTab = tabLayout.getChildAt(k);
+                                    if (otherTab instanceof Button && 
+                                        ((Button)otherTab).getText().toString().equals("Console")) {
+                                        ((Button)otherTab).setBackgroundColor(Color.LTGRAY);
+                                    }
+                                }
+                            });
+                        }
+                        
+                        // Handle Console tab
+                        if (tabButton.getText().toString().equals("Console")) {
+                            tabButton.setOnClickListener(v -> {
+                                // Show console, hide source
+                                if (sourceCodeText != null && sourceCodeText.getParent() != null) {
+                                    ((View)sourceCodeText.getParent().getParent()).setVisibility(View.GONE);
+                                }
+                                if (consoleLogRecyclerView != null) {
+                                    consoleLogRecyclerView.setVisibility(View.VISIBLE);
+                                }
+                                
+                                // Update tab styling
+                                tabButton.setBackgroundColor(Color.WHITE);
+                                
+                                // Find and update Source tab styling
+                                for (int k = 0; k < tabLayout.getChildCount(); k++) {
+                                    View otherTab = tabLayout.getChildAt(k);
+                                    if (otherTab instanceof Button && 
+                                        ((Button)otherTab).getText().toString().equals("Source")) {
+                                        ((Button)otherTab).setBackgroundColor(Color.LTGRAY);
+                                    }
+                                }
+                                
+                                // Show some test logs
+                                new Handler(Looper.getMainLooper()).postDelayed(() -> {
+                                    webView.evaluateJavascript(
+                                        "console.log('Console tab activated');" +
+                                        "console.info('Log entries should appear here');", 
+                                        null
+                                    );
+                                    
+                                    // Add a direct test log entry if adapter exists
+                                    if (consoleLogAdapter != null) {
+                                        ConsoleLogEntry testEntry = new ConsoleLogEntry(
+                                            "log", 
+                                            "Local test message from Android app", 
+                                            new Date()
+                                        );
+                                        consoleLogEntries.add(testEntry);
+                                        consoleLogAdapter.notifyItemInserted(consoleLogEntries.size() - 1);
+                                        consoleLogRecyclerView.scrollToPosition(consoleLogEntries.size() - 1);
+                                    }
+                                }, 100);
+                            });
+                            
+                            // Automatically trigger the Console tab click to show it by default
+                            tabButton.performClick();
+                        }
+                    }
+                }
+            } else if (child instanceof ScrollView) {
+                sourceView = child;
+            } else if (child instanceof RecyclerView) {
+                consoleView = child;
+            }
+        }
+        
+        // Make sure they're both initialized
+        if (sourceView != null) {
+            sourceView.setVisibility(View.VISIBLE);
+        }
+        if (consoleView != null) {
+            consoleView.setVisibility(View.GONE);
         }
     }
 
@@ -545,10 +694,10 @@ public class BrowserActivity extends AppCompatActivity {
         devToolsView.setBackgroundColor(getResources().getColor(android.R.color.white));
         devToolsView.setLayoutParams(new FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT,
-                FrameLayout.LayoutParams.WRAP_CONTENT
+                FrameLayout.LayoutParams.MATCH_PARENT
         ));
         
-        // Add tab layout for different tools
+        // Create tabs for source/console
         LinearLayout tabLayout = new LinearLayout(this);
         tabLayout.setOrientation(LinearLayout.HORIZONTAL);
         tabLayout.setLayoutParams(new LinearLayout.LayoutParams(
@@ -556,75 +705,56 @@ public class BrowserActivity extends AppCompatActivity {
                 LinearLayout.LayoutParams.WRAP_CONTENT
         ));
         
-        // Source code tab button
-        Button sourceButton = new Button(this);
-        sourceButton.setText("Source");
-        sourceButton.setLayoutParams(new LinearLayout.LayoutParams(
-                0, LinearLayout.LayoutParams.WRAP_CONTENT, 1
+        // Source tab
+        Button sourceTab = new Button(this);
+        sourceTab.setText("Source");
+        sourceTab.setLayoutParams(new LinearLayout.LayoutParams(
+                0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f
         ));
-        sourceButton.setOnClickListener(v -> showSourceView());
         
-        // Console tab button
-        consoleToggleButton = new Button(this);
-        consoleToggleButton.setText("Console");
-        consoleToggleButton.setLayoutParams(new LinearLayout.LayoutParams(
-                0, LinearLayout.LayoutParams.WRAP_CONTENT, 1
+        // Console tab
+        Button consoleTab = new Button(this);
+        consoleTab.setText("Console");
+        consoleTab.setLayoutParams(new LinearLayout.LayoutParams(
+                0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f
         ));
-        consoleToggleButton.setOnClickListener(v -> toggleConsoleView());
         
-        // Clear console button
-        Button clearConsoleButton = new Button(this);
-        clearConsoleButton.setText("Clear");
-        clearConsoleButton.setLayoutParams(new LinearLayout.LayoutParams(
-                0, LinearLayout.LayoutParams.WRAP_CONTENT, 1
-        ));
-        clearConsoleButton.setOnClickListener(v -> clearConsoleLogs());
+        tabLayout.addView(sourceTab);
+        tabLayout.addView(consoleTab);
         
-        // Test log button
-        Button testLogButton = new Button(this);
-        testLogButton.setText("Test Log");
-        testLogButton.setLayoutParams(new LinearLayout.LayoutParams(
-                0, LinearLayout.LayoutParams.WRAP_CONTENT, 1
-        ));
-        testLogButton.setOnClickListener(v -> testConsoleLog());
-        
-        tabLayout.addView(sourceButton);
-        tabLayout.addView(consoleToggleButton);
-        tabLayout.addView(clearConsoleButton);
-        tabLayout.addView(testLogButton);
-        
-        // Source code view
-        sourceCodeText = new TextView(this);
-        sourceCodeText.setLayoutParams(new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                400 // Fixed height for now
-        ));
-        sourceCodeText.setTextSize(12);
-        sourceCodeText.setTypeface(Typeface.MONOSPACE);
-        sourceCodeText.setTextColor(getResources().getColor(android.R.color.black));
-        sourceCodeText.setBackgroundColor(getResources().getColor(android.R.color.white));
-        
-        // Create a ScrollView for the source code
+        // Source code scroll view
         ScrollView sourceScrollView = new ScrollView(this);
         sourceScrollView.setLayoutParams(new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
-                400
+                LinearLayout.LayoutParams.MATCH_PARENT
         ));
+        
+        sourceCodeText = new TextView(this);
+        sourceCodeText.setTypeface(Typeface.MONOSPACE);
+        sourceCodeText.setTextSize(14);
+        sourceCodeText.setPadding(16, 16, 16, 16);
+        sourceCodeText.setLayoutParams(new ScrollView.LayoutParams(
+                ScrollView.LayoutParams.MATCH_PARENT,
+                ScrollView.LayoutParams.WRAP_CONTENT
+        ));
+        
         sourceScrollView.addView(sourceCodeText);
         
-        // Console log view
+        // Console log recycler view
         consoleLogRecyclerView = new RecyclerView(this);
+        consoleLogRecyclerView.setLayoutManager(new LinearLayoutManager(this));
         consoleLogRecyclerView.setLayoutParams(new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
-                400
+                LinearLayout.LayoutParams.MATCH_PARENT
         ));
-        consoleLogRecyclerView.setLayoutManager(new LinearLayoutManager(this));
+        
+        // Set up the console log adapter
         consoleLogAdapter = new ConsoleLogAdapter(consoleLogEntries);
         consoleLogRecyclerView.setAdapter(consoleLogAdapter);
         
-        // Initially show source view
+        // Initially show source view, hide console view
+        sourceScrollView.setVisibility(View.VISIBLE);
         consoleLogRecyclerView.setVisibility(View.GONE);
-        isConsoleVisible = false;
         
         // Add components to the dev tools view
         devToolsView.addView(tabLayout);
@@ -634,6 +764,29 @@ public class BrowserActivity extends AppCompatActivity {
         // Add to the main layout
         ((FrameLayout) findViewById(R.id.web_view_container)).addView(devToolsView);
         devToolsView.setVisibility(View.GONE);
+        
+        // Tab click listeners
+        sourceTab.setOnClickListener(v -> {
+            sourceTab.setBackgroundColor(Color.LTGRAY);
+            consoleTab.setBackgroundColor(Color.GRAY);
+            sourceScrollView.setVisibility(View.VISIBLE);
+            consoleLogRecyclerView.setVisibility(View.GONE);
+            isConsoleVisible = false;
+        });
+        
+        consoleTab.setOnClickListener(v -> {
+            consoleTab.setBackgroundColor(Color.LTGRAY);
+            sourceTab.setBackgroundColor(Color.GRAY);
+            sourceScrollView.setVisibility(View.GONE);
+            consoleLogRecyclerView.setVisibility(View.VISIBLE);
+            isConsoleVisible = true;
+            
+            // Test logs - add a test log entry when console tab is opened
+            ConsoleLogEntry testEntry = new ConsoleLogEntry("log", "Test console log from Android app", new Date());
+            consoleLogEntries.add(testEntry);
+            consoleLogAdapter.notifyItemInserted(consoleLogEntries.size() - 1);
+            consoleLogRecyclerView.scrollToPosition(consoleLogEntries.size() - 1);
+        });
         
         // Inject the console logger script for capturing console outputs
         injectConsoleLogger();
@@ -678,47 +831,75 @@ public class BrowserActivity extends AppCompatActivity {
         }
         
         final String consoleScript = 
-            "console.originalLog = console.log;" +
-            "console.originalError = console.error;" +
-            "console.originalWarn = console.warn;" +
-            "console.originalInfo = console.info;" +
+            "(function() {" +
+            "   if (window.consoleLoggerInjected) return;" +
+            "   console.originalLog = console.log;" +
+            "   console.originalError = console.error;" +
+            "   console.originalWarn = console.warn;" +
+            "   console.originalInfo = console.info;" +
+            "   console.originalDebug = console.debug;" +
             
-            "console.log = function() {" +
-            "   console.originalLog.apply(this, arguments);" +
-            "   var message = Array.prototype.slice.call(arguments).map(function(arg) {" +
-            "       return (typeof arg === 'object') ? JSON.stringify(arg) : String(arg);" + 
-            "   }).join(' ');" +
-            "   Android.consoleLog('log', message);" +
-            "};" +
+            "   console.log = function() {" +
+            "       var args = Array.prototype.slice.call(arguments);" +
+            "       console.originalLog.apply(console, args);" +
+            "       var message = args.map(function(arg) {" +
+            "           return (typeof arg === 'object') ? JSON.stringify(arg) : String(arg);" + 
+            "       }).join(' ');" +
+            "       Android.consoleLog('log', message);" +
+            "   };" +
             
-            "console.error = function() {" +
-            "   console.originalError.apply(this, arguments);" +
-            "   var message = Array.prototype.slice.call(arguments).map(function(arg) {" +
-            "       return (typeof arg === 'object') ? JSON.stringify(arg) : String(arg);" + 
-            "   }).join(' ');" +
-            "   Android.consoleLog('error', message);" +
-            "};" +
+            "   console.error = function() {" +
+            "       var args = Array.prototype.slice.call(arguments);" +
+            "       console.originalError.apply(console, args);" +
+            "       var message = args.map(function(arg) {" +
+            "           return (typeof arg === 'object') ? JSON.stringify(arg) : String(arg);" + 
+            "       }).join(' ');" +
+            "       Android.consoleLog('error', message);" +
+            "   };" +
             
-            "console.warn = function() {" +
-            "   console.originalWarn.apply(this, arguments);" +
-            "   var message = Array.prototype.slice.call(arguments).map(function(arg) {" +
-            "       return (typeof arg === 'object') ? JSON.stringify(arg) : String(arg);" + 
-            "   }).join(' ');" +
-            "   Android.consoleLog('warn', message);" +
-            "};" +
+            "   console.warn = function() {" +
+            "       var args = Array.prototype.slice.call(arguments);" +
+            "       console.originalWarn.apply(console, args);" +
+            "       var message = args.map(function(arg) {" +
+            "           return (typeof arg === 'object') ? JSON.stringify(arg) : String(arg);" + 
+            "       }).join(' ');" +
+            "       Android.consoleLog('warn', message);" +
+            "   };" +
             
-            "console.info = function() {" +
-            "   console.originalInfo.apply(this, arguments);" +
-            "   var message = Array.prototype.slice.call(arguments).map(function(arg) {" +
-            "       return (typeof arg === 'object') ? JSON.stringify(arg) : String(arg);" + 
-            "   }).join(' ');" +
-            "   Android.consoleLog('info', message);" +
-            "};";
+            "   console.info = function() {" +
+            "       var args = Array.prototype.slice.call(arguments);" +
+            "       console.originalInfo.apply(console, args);" +
+            "       var message = args.map(function(arg) {" +
+            "           return (typeof arg === 'object') ? JSON.stringify(arg) : String(arg);" + 
+            "       }).join(' ');" +
+            "       Android.consoleLog('info', message);" +
+            "   };" +
+            
+            "   console.debug = function() {" +
+            "       var args = Array.prototype.slice.call(arguments);" +
+            "       console.originalDebug.apply(console, args);" +
+            "       var message = args.map(function(arg) {" +
+            "           return (typeof arg === 'object') ? JSON.stringify(arg) : String(arg);" + 
+            "       }).join(' ');" +
+            "       Android.consoleLog('debug', message);" +
+            "   };" +
+            
+            "   window.consoleLoggerInjected = true;" +
+            "   console.log('Console logger initialized');" +
+            "})();";
         
-        webView.evaluateJavascript("javascript:" + consoleScript, null);
+        webView.evaluateJavascript(consoleScript, null);
         
-        // Test log to verify console logging is working
-        webView.evaluateJavascript("javascript:console.log('Console logger initialized');", null);
+        // Generate test logs for verification
+        new Handler(Looper.getMainLooper()).postDelayed(() -> {
+            webView.evaluateJavascript(
+                "console.log('Test log message');" +
+                "console.error('Test error message');" +
+                "console.warn('Test warning message');" +
+                "console.info('Test info message');", 
+                null
+            );
+        }, 500);
     }
 
     // Clear console logs
@@ -1039,7 +1220,8 @@ public class BrowserActivity extends AppCompatActivity {
     public boolean onOptionsItemSelected(MenuItem item) {
         int id = item.getItemId();
 
-        if (id == R.id.action_view_source) {
+        if (id == R.id.action_dev_tools) {
+            // Show developer tools with tabbed interface
             toggleDevTools();
             return true;
         } else if (id == R.id.action_share) {
@@ -1369,15 +1551,16 @@ public class BrowserActivity extends AppCompatActivity {
             // Inject JavaScript to check if page is fully loaded
             view.evaluateJavascript(
                     "(function() {" +
-                            "   var checkReadyState = function() {" +
-                            "       if (document.readyState === 'complete') {" +
-                            "           window.Android.onPageFullyLoaded();" +
-                            "       } else {" +
-                            "           setTimeout(checkReadyState, 100);" +
-                            "       }" +
-                            "   };" +
-                            "   checkReadyState();" +
-                            "   return document.readyState === 'complete';" +
+                            "   try {" +
+                            "       var checkReadyState = function() {" +
+                            "           if (document.readyState === 'complete') {" +
+                            "               window.Android.onPageFullyLoaded();" +
+                            "           } else {" +
+                            "               setTimeout(checkReadyState, 100);" +
+                            "           }" +
+                            "       };" +
+                            "       checkReadyState();" +
+                            "       return document.readyState === 'complete';" +
                             "})();",
                     value -> {
                         if (Boolean.parseBoolean(value)) {
@@ -1523,6 +1706,69 @@ public class BrowserActivity extends AppCompatActivity {
         // Switch to console view if not already showing
         if (!isConsoleVisible) {
             toggleConsoleView();
+        }
+    }
+
+    /**
+     * Shows developer tools with the specified mode active.
+     * @param mode The mode to display (DEV_TOOLS_SOURCE or DEV_TOOLS_CONSOLE)
+     */
+    private void showDevTools(int mode) {
+        // If dev tools are not visible, show them
+        if (!isDevToolsVisible) {
+            if (devToolsView == null) {
+                // Create dev tools view if not already created
+                setupDevToolsView();
+            }
+            
+            devToolsView.setVisibility(View.VISIBLE);
+            isDevToolsVisible = true;
+            devToolsButton.setImageResource(android.R.drawable.ic_menu_close_clear_cancel);
+        }
+        
+        // Ensure views are initialized
+        if (devToolsView == null) {
+            Log.e(TAG, "Developer tools view is null");
+            return;
+        }
+        
+        // Make sure the RecyclerView has been created
+        if (consoleLogRecyclerView == null) {
+            setupDevToolsView();
+        }
+        
+        // Set the active tab based on the mode
+        if (mode == DEV_TOOLS_SOURCE) {
+            // Show source code
+            refreshSourceCode();
+            if (sourceCodeText != null && sourceCodeText.getParent() != null && sourceCodeText.getParent().getParent() != null) {
+                ((View)sourceCodeText.getParent().getParent()).setVisibility(View.VISIBLE);
+            }
+            if (consoleLogRecyclerView != null) {
+                consoleLogRecyclerView.setVisibility(View.GONE);
+            }
+            isConsoleVisible = false;
+        } else if (mode == DEV_TOOLS_CONSOLE) {
+            // Show console logs
+            if (sourceCodeText != null && sourceCodeText.getParent() != null && sourceCodeText.getParent().getParent() != null) {
+                ((View)sourceCodeText.getParent().getParent()).setVisibility(View.GONE);
+            }
+            if (consoleLogRecyclerView != null) {
+                consoleLogRecyclerView.setVisibility(View.VISIBLE);
+                
+                // Generate some test logs for the console
+                new Handler(Looper.getMainLooper()).postDelayed(() -> {
+                    if (webView != null) {
+                        webView.evaluateJavascript(
+                            "console.log('Console view activated');" +
+                            "console.error('Test error message');" +
+                            "console.warn('Test warning message');", 
+                            null
+                        );
+                    }
+                }, 300);
+            }
+            isConsoleVisible = true;
         }
     }
 }
