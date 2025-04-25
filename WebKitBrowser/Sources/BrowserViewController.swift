@@ -27,6 +27,8 @@ class BrowserViewController: UIViewController {
     // Dev tools properties
     var isDevToolsVisible = false
     var devToolsView: UIView?
+    var consoleLogView: ConsoleLogView?
+    var isConsoleVisible = false
     
     // Current zoom factor (1.0 = 100%)
     var currentZoomFactor: Double = 1.0
@@ -68,6 +70,9 @@ class BrowserViewController: UIViewController {
         
         setupUIComponents()
         setupConstraints()
+        
+        // Inject console logger script for capturing console outputs
+        injectConsoleLogger()
         
         // Restore previous session if available, otherwise load a default URL
         loadSavedSession()
@@ -118,7 +123,11 @@ class BrowserViewController: UIViewController {
         let webConfiguration = WKWebViewConfiguration()
         let preferences = WKPreferences()
         preferences.javaScriptEnabled = true
+        preferences.javaScriptCanOpenWindowsAutomatically = false
         webConfiguration.preferences = preferences
+        
+        // Set up the user content controller for JavaScript messaging
+        webConfiguration.userContentController.add(self, name: "consoleLog")
         
         webView = WKWebView(frame: .zero, configuration: webConfiguration)
         webView.translatesAutoresizingMaskIntoConstraints = false
@@ -402,135 +411,282 @@ class BrowserViewController: UIViewController {
     // MARK: - Development Tools
     
     @objc func toggleDevTools() {
-        isDevToolsVisible.toggle()
+        print("BrowserViewController: toggling dev tools")
         
         if isDevToolsVisible {
-            // Create dev tools view
-            devToolsView = UIView()
-            if let devToolsView = devToolsView {
-                devToolsView.backgroundColor = UIColor.systemGray6
-                devToolsView.translatesAutoresizingMaskIntoConstraints = false
-                view.addSubview(devToolsView)
-                
-                // Add a text view to show HTML source with selection enabled
-                let textView = UITextView()
-                textView.translatesAutoresizingMaskIntoConstraints = false
-                textView.font = UIFont.monospacedSystemFont(ofSize: 12, weight: .regular)
-                textView.isEditable = false
-                textView.isSelectable = true
-                textView.backgroundColor = UIColor.systemBackground
-                textView.autocorrectionType = .no
-                textView.autocapitalizationType = .none
-                textView.spellCheckingType = .no
-                textView.keyboardType = .default
-                textView.returnKeyType = .done
-                textView.tag = 100 // Tag for referencing later
-                devToolsView.addSubview(textView)
-                
-                // Add a toolbar with buttons
-                let toolbar = UIToolbar()
-                toolbar.translatesAutoresizingMaskIntoConstraints = false
-                toolbar.barTintColor = UIColor.systemGray5
-                devToolsView.addSubview(toolbar)
-                
-                // Create toolbar buttons
-                let closeButton = UIBarButtonItem(barButtonSystemItem: .close, target: self, action: #selector(toggleDevTools))
-                let flexSpace = UIBarButtonItem(barButtonSystemItem: .flexibleSpace, target: nil, action: nil)
-                let selectAllButton = UIBarButtonItem(title: "Select All", style: .plain, target: self, action: #selector(selectAllSourceCode))
-                let refreshButton = UIBarButtonItem(barButtonSystemItem: .refresh, target: self, action: #selector(refreshDevTools))
-                toolbar.items = [closeButton, flexSpace, selectAllButton, refreshButton]
-                
-                // Configure layout
-                NSLayoutConstraint.activate([
-                    devToolsView.leftAnchor.constraint(equalTo: view.leftAnchor),
-                    devToolsView.rightAnchor.constraint(equalTo: view.rightAnchor),
-                    devToolsView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
-                    devToolsView.heightAnchor.constraint(equalToConstant: 300), // Taller for better view
-                    
-                    toolbar.topAnchor.constraint(equalTo: devToolsView.topAnchor),
-                    toolbar.leadingAnchor.constraint(equalTo: devToolsView.leadingAnchor),
-                    toolbar.trailingAnchor.constraint(equalTo: devToolsView.trailingAnchor),
-                    toolbar.heightAnchor.constraint(equalToConstant: 44),
-                    
-                    textView.topAnchor.constraint(equalTo: toolbar.bottomAnchor),
-                    textView.leadingAnchor.constraint(equalTo: devToolsView.leadingAnchor, constant: 8),
-                    textView.trailingAnchor.constraint(equalTo: devToolsView.trailingAnchor, constant: -8),
-                    textView.bottomAnchor.constraint(equalTo: devToolsView.bottomAnchor, constant: -8)
-                ])
-                
-                // Get HTML content from the web view
-                refreshDevTools()
-            }
-        } else {
             // Hide dev tools
             devToolsView?.removeFromSuperview()
-            devToolsView = nil
-        }
-    }
-    
-    @objc func selectAllSourceCode() {
-        if let devToolsView = devToolsView, 
-           let textView = devToolsView.viewWithTag(100) as? UITextView {
-            textView.selectAll(nil)
-        }
-    }
-    
-    @objc func refreshDevTools() {
-        if let devToolsView = devToolsView,
-           let textView = devToolsView.viewWithTag(100) as? UITextView {
-            // Show loading indicator
-            textView.text = "Loading HTML source..."
-            
-            // Get HTML content from the web view
-            webView.evaluateJavaScript("document.documentElement.outerHTML") { [weak self] (result, error) in
-                DispatchQueue.main.async {
-                    if let html = result as? String {
-                        // Format the HTML with indentation for better readability
-                        let formattedHTML = self?.formatHTML(html) ?? html
-                        textView.text = formattedHTML
-                    } else if let error = error {
-                        textView.text = "Error loading HTML: \(error.localizedDescription)"
-                    }
-                }
+            isDevToolsVisible = false
+        } else {
+            // Show dev tools
+            if devToolsView == nil {
+                setupDevToolsView()
             }
+            
+            isDevToolsVisible = true
+            view.addSubview(devToolsView!)
+            
+            // Refresh HTML source
+            loadHTMLSource()
+            
+            // Adjust constraints based on device orientation
+            updateDevToolsConstraints()
         }
     }
     
-    private func formatHTML(_ html: String) -> String {
-        // Simple HTML formatting - you could use a more sophisticated formatter if needed
-        var indentLevel = 0
-        var formattedHTML = ""
-        var isInTag = false
-        var isInQuotes = false
-        let indentString = "  " // Two spaces for each level
+    private func setupDevToolsView() {
+        print("BrowserViewController: Setting up dev tools view")
         
-        for char in html {
-            if char == "<" && !isInQuotes {
-                isInTag = true
-                if html.dropFirst(html.distance(from: html.startIndex, to: html.firstIndex(of: char)!)).starts(with: "</") {
-                    // Closing tag, decrease indent before adding
-                    indentLevel = max(0, indentLevel - 1)
-                }
-                // Add newline and indent before starting a new tag
-                formattedHTML += "\n" + String(repeating: indentString, count: indentLevel)
+        // Create dev tools container view
+        let devToolsContainer = UIView()
+        devToolsContainer.translatesAutoresizingMaskIntoConstraints = false
+        devToolsContainer.backgroundColor = .systemBackground
+        devToolsContainer.layer.borderWidth = 1
+        devToolsContainer.layer.borderColor = UIColor.systemGray3.cgColor
+        
+        // Create segmented control for tabs
+        let segmentedControl = UISegmentedControl(items: ["Source", "Console"])
+        segmentedControl.translatesAutoresizingMaskIntoConstraints = false
+        segmentedControl.selectedSegmentIndex = 0
+        segmentedControl.addTarget(self, action: #selector(devToolsTabChanged(_:)), for: .valueChanged)
+        
+        // Create HTML source text view
+        let sourceTextView = UITextView()
+        sourceTextView.translatesAutoresizingMaskIntoConstraints = false
+        sourceTextView.isEditable = false
+        sourceTextView.font = UIFont.monospacedSystemFont(ofSize: 12, weight: .regular)
+        
+        // Create console log view
+        let consoleView = ConsoleLogView()
+        consoleView.translatesAutoresizingMaskIntoConstraints = false
+        consoleView.isHidden = true
+        
+        // Create toolbar for actions
+        let toolbar = UIToolbar()
+        toolbar.translatesAutoresizingMaskIntoConstraints = false
+        
+        // Create toolbar buttons
+        let closeButton = UIBarButtonItem(barButtonSystemItem: .done, target: self, action: #selector(toggleDevTools))
+        let flexSpace = UIBarButtonItem(barButtonSystemItem: .flexibleSpace, target: nil, action: nil)
+        let clearButton = UIBarButtonItem(title: "Clear", style: .plain, target: self, action: #selector(clearConsoleOrSource))
+        let copyButton = UIBarButtonItem(title: "Copy", style: .plain, target: self, action: #selector(copyDevToolsContent))
+        let testLogButton = UIBarButtonItem(title: "Test Log", style: .plain, target: self, action: #selector(testConsoleLog))
+        
+        toolbar.items = [closeButton, flexSpace, clearButton, copyButton, testLogButton]
+        
+        // Add subviews
+        devToolsContainer.addSubview(toolbar)
+        devToolsContainer.addSubview(segmentedControl)
+        devToolsContainer.addSubview(sourceTextView)
+        devToolsContainer.addSubview(consoleView)
+        
+        // Set up constraints
+        NSLayoutConstraint.activate([
+            toolbar.topAnchor.constraint(equalTo: devToolsContainer.topAnchor),
+            toolbar.leadingAnchor.constraint(equalTo: devToolsContainer.leadingAnchor),
+            toolbar.trailingAnchor.constraint(equalTo: devToolsContainer.trailingAnchor),
+            toolbar.heightAnchor.constraint(equalToConstant: 44),
+            
+            segmentedControl.topAnchor.constraint(equalTo: toolbar.bottomAnchor, constant: 8),
+            segmentedControl.leadingAnchor.constraint(equalTo: devToolsContainer.leadingAnchor, constant: 8),
+            segmentedControl.trailingAnchor.constraint(equalTo: devToolsContainer.trailingAnchor, constant: -8),
+            
+            sourceTextView.topAnchor.constraint(equalTo: segmentedControl.bottomAnchor, constant: 8),
+            sourceTextView.leadingAnchor.constraint(equalTo: devToolsContainer.leadingAnchor),
+            sourceTextView.trailingAnchor.constraint(equalTo: devToolsContainer.trailingAnchor),
+            sourceTextView.bottomAnchor.constraint(equalTo: devToolsContainer.bottomAnchor),
+            
+            consoleView.topAnchor.constraint(equalTo: segmentedControl.bottomAnchor, constant: 8),
+            consoleView.leadingAnchor.constraint(equalTo: devToolsContainer.leadingAnchor),
+            consoleView.trailingAnchor.constraint(equalTo: devToolsContainer.trailingAnchor),
+            consoleView.bottomAnchor.constraint(equalTo: devToolsContainer.bottomAnchor)
+        ])
+        
+        // Store references to views
+        devToolsView = devToolsContainer
+        consoleLogView = consoleView
+        
+        // Select the console tab
+        segmentedControl.selectedSegmentIndex = 1
+        devToolsTabChanged(segmentedControl)
+    }
+    
+    @objc private func devToolsTabChanged(_ sender: UISegmentedControl) {
+        if let devToolsContainer = devToolsView {
+            // Find the source text view and console view
+            let sourceView = devToolsContainer.subviews.first { $0 is UITextView } as? UITextView
+            
+            if sender.selectedSegmentIndex == 0 {
+                // Show source view
+                sourceView?.isHidden = false
+                consoleLogView?.isHidden = true
+                isConsoleVisible = false
+                
+                // Refresh HTML source
+                loadHTMLSource()
+            } else {
+                // Show console view
+                sourceView?.isHidden = true
+                consoleLogView?.isHidden = false
+                isConsoleVisible = true
+            }
+        }
+    }
+    
+    private func updateDevToolsConstraints() {
+        guard let devToolsContainer = devToolsView else { return }
+        
+        // Remove existing constraints
+        NSLayoutConstraint.deactivate(devToolsContainer.constraints.filter { 
+            $0.firstItem === devToolsContainer && $0.firstAttribute == .height
+        })
+        
+        // Set new constraints based on device orientation
+        devToolsContainer.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            devToolsContainer.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            devToolsContainer.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            devToolsContainer.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+            devToolsContainer.heightAnchor.constraint(equalTo: view.heightAnchor, multiplier: 0.4)
+        ])
+    }
+    
+    private func injectConsoleLogger() {
+        let script = """
+        (function() {
+            if (window.consoleLoggerInjected) return;
+            
+            // Store original console methods
+            var originalLog = console.log;
+            var originalError = console.error;
+            var originalWarn = console.warn;
+            var originalInfo = console.info;
+            var originalDebug = console.debug;
+            
+            // Override console.log
+            console.log = function() {
+                originalLog.apply(console, arguments);
+                var message = Array.prototype.slice.call(arguments).map(function(arg) {
+                    return (typeof arg === 'object') ? JSON.stringify(arg) : String(arg);
+                }).join(' ');
+                window.webkit.messageHandlers.consoleLog.postMessage({type: 'log', message: message});
+            };
+            
+            // Override console.error
+            console.error = function() {
+                originalError.apply(console, arguments);
+                var message = Array.prototype.slice.call(arguments).map(function(arg) {
+                    return (typeof arg === 'object') ? JSON.stringify(arg) : String(arg);
+                }).join(' ');
+                window.webkit.messageHandlers.consoleLog.postMessage({type: 'error', message: message});
+            };
+            
+            // Override console.warn
+            console.warn = function() {
+                originalWarn.apply(console, arguments);
+                var message = Array.prototype.slice.call(arguments).map(function(arg) {
+                    return (typeof arg === 'object') ? JSON.stringify(arg) : String(arg);
+                }).join(' ');
+                window.webkit.messageHandlers.consoleLog.postMessage({type: 'warn', message: message});
+            };
+            
+            // Override console.info
+            console.info = function() {
+                originalInfo.apply(console, arguments);
+                var message = Array.prototype.slice.call(arguments).map(function(arg) {
+                    return (typeof arg === 'object') ? JSON.stringify(arg) : String(arg);
+                }).join(' ');
+                window.webkit.messageHandlers.consoleLog.postMessage({type: 'info', message: message});
+            };
+            
+            // Override console.debug
+            console.debug = function() {
+                originalDebug.apply(console, arguments);
+                var message = Array.prototype.slice.call(arguments).map(function(arg) {
+                    return (typeof arg === 'object') ? JSON.stringify(arg) : String(arg);
+                }).join(' ');
+                window.webkit.messageHandlers.consoleLog.postMessage({type: 'debug', message: message});
+            };
+            
+            window.consoleLoggerInjected = true;
+            
+            // Send a test log message
+            console.log('Console logger initialized');
+        })();
+        """
+        
+        // Add as user script to be injected at document end
+        let userScript = WKUserScript(source: script, injectionTime: .atDocumentEnd, forMainFrameOnly: false)
+        webView.configuration.userContentController.addUserScript(userScript)
+        
+        // Also evaluate immediately if webView is already loaded
+        webView.evaluateJavaScript(script) { result, error in
+            if let error = error {
+                print("Error injecting console logger: \(error)")
+            } else {
+                print("Console logger injected successfully")
+            }
+        }
+    }
+    
+    private func loadHTMLSource() {
+        let script = """
+        (function() {
+            try {
+                return document.documentElement.outerHTML;
+            } catch(e) {
+                return 'Error getting HTML source: ' + e.toString();
+            }
+        })();
+        """
+        
+        webView.evaluateJavaScript(script) { result, error in
+            if let error = error {
+                print("Error getting HTML source: \(error)")
+                return
             }
             
-            if char == "\"" {
-                isInQuotes = !isInQuotes
-            }
-            
-            formattedHTML.append(char)
-            
-            if char == ">" && !isInQuotes {
-                isInTag = false
-                // If it's not a self-closing tag or a closing tag, increase indent
-                if !formattedHTML.hasSuffix("/>") && !formattedHTML.contains("</") {
-                    indentLevel += 1
+            if let htmlString = result as? String {
+                // Find the source text view in the dev tools container
+                if let sourceView = self.devToolsView?.subviews.first(where: { $0 is UITextView }) as? UITextView {
+                    sourceView.text = htmlString
                 }
             }
         }
+    }
+    
+    @objc private func clearConsoleOrSource() {
+        if isConsoleVisible {
+            // Clear console
+            consoleLogView?.clearLogs()
+        } else {
+            // Clear source view
+            if let sourceView = devToolsView?.subviews.first(where: { $0 is UITextView }) as? UITextView {
+                sourceView.text = ""
+            }
+        }
+    }
+    
+    @objc private func copyDevToolsContent() {
+        if isConsoleVisible {
+            // Copy console content
+            consoleLogView?.copyLogsToClipboard()
+        } else {
+            // Copy source content
+            if let sourceView = devToolsView?.subviews.first(where: { $0 is UITextView }) as? UITextView {
+                UIPasteboard.general.string = sourceView.text
+                showToast(message: "Source code copied to clipboard")
+            }
+        }
+    }
+    
+    private func showToast(message: String) {
+        let alert = UIAlertController(title: nil, message: message, preferredStyle: .alert)
+        present(alert, animated: true)
         
-        return formattedHTML
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+            alert.dismiss(animated: true)
+        }
     }
     
     // MARK: - Credential Management
@@ -975,6 +1131,32 @@ class BrowserViewController: UIViewController {
         
         present(alertController, animated: true)
     }
+    
+    @objc private func testConsoleLog() {
+        // Test different types of console logging
+        let testScript = """
+        (function() {
+            console.log('Test log message from button');
+            console.error('Test error message');
+            console.warn('Test warning message');
+            console.info('Test info message');
+            console.debug('Test debug message');
+            
+            // Also test an object
+            console.log('Object test:', { name: 'Test Object', value: 42 });
+            
+            return 'Logs sent';
+        })();
+        """
+        
+        webView.evaluateJavaScript(testScript) { result, error in
+            if let error = error {
+                print("Error running test log script: \(error)")
+            } else {
+                print("Test log script executed: \(String(describing: result))")
+            }
+        }
+    }
 }
 
 // MARK: - WKNavigationDelegate
@@ -1071,83 +1253,141 @@ extension BrowserViewController: VariableSelectionDelegate {
     }
 }
 
-// MARK: - Source View Controller
-class SourceViewController: UIViewController {
-    private var htmlSource: String
-    private var textView: UITextView!
+// MARK: - WKScriptMessageHandler
+extension BrowserViewController: WKScriptMessageHandler {
+    func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
+        if message.name == "consoleLog" {
+            handleConsoleLogMessage(message)
+        }
+    }
     
-    init(htmlSource: String) {
-        self.htmlSource = htmlSource
-        super.init(nibName: nil, bundle: nil)
+    private func handleConsoleLogMessage(_ message: WKScriptMessage) {
+        guard let body = message.body as? [String: Any],
+              let type = body["type"] as? String,
+              let logMessage = body["message"] as? String else {
+            return
+        }
+        
+        // Log to Xcode console for debugging
+        print("JS Console[\(type)]: \(logMessage)")
+        
+        // Add to our console log view
+        DispatchQueue.main.async {
+            self.consoleLogView?.addLogEntry(type: type, message: logMessage)
+        }
+    }
+}
+
+// MARK: - ConsoleLogView
+class ConsoleLogView: UIView {
+    private struct LogEntry {
+        let timestamp: Date
+        let type: String
+        let message: String
+        
+        var formattedTimestamp: String {
+            let formatter = DateFormatter()
+            formatter.dateFormat = "HH:mm:ss.SSS"
+            return formatter.string(from: timestamp)
+        }
+        
+        var color: UIColor {
+            switch type {
+            case "error":
+                return .systemRed
+            case "warn":
+                return .systemOrange
+            case "info":
+                return .systemBlue
+            case "debug":
+                return .systemGray
+            default:
+                return .label
+            }
+        }
+    }
+    
+    private var tableView: UITableView!
+    private var logEntries: [LogEntry] = []
+    
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        setupView()
     }
     
     required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
+        super.init(coder: coder)
+        setupView()
     }
     
-    override func viewDidLoad() {
-        super.viewDidLoad()
-        setupUI()
-    }
-    
-    private func setupUI() {
-        view.backgroundColor = .systemBackground
+    private func setupView() {
+        tableView = UITableView()
+        tableView.translatesAutoresizingMaskIntoConstraints = false
+        tableView.dataSource = self
+        tableView.delegate = self
+        tableView.register(UITableViewCell.self, forCellReuseIdentifier: "LogCell")
+        tableView.rowHeight = UITableView.automaticDimension
+        tableView.estimatedRowHeight = 44
         
-        // Create text view
-        textView = UITextView()
-        textView.translatesAutoresizingMaskIntoConstraints = false
-        textView.text = htmlSource
-        textView.font = UIFont.monospacedSystemFont(ofSize: 12, weight: .regular)
-        textView.isEditable = false
-        view.addSubview(textView)
+        addSubview(tableView)
         
-        // Create toolbar
-        let toolbar = UIToolbar()
-        toolbar.translatesAutoresizingMaskIntoConstraints = false
-        view.addSubview(toolbar)
-        
-        // Create a close button
-        let closeButton = UIBarButtonItem(title: "Close", style: .done, target: self, action: #selector(dismissView))
-        
-        // Create a copy all button
-        let copyButton = UIBarButtonItem(title: "Copy All", style: .plain, target: self, action: #selector(copyAllHtml))
-        
-        // Create a flexible space to push items to sides
-        let flexSpace = UIBarButtonItem(barButtonSystemItem: .flexibleSpace, target: nil, action: nil)
-        
-        // Add the buttons to the toolbar
-        toolbar.items = [closeButton, flexSpace, copyButton]
-        
-        // Add constraints for toolbar
         NSLayoutConstraint.activate([
-            toolbar.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
-            toolbar.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            toolbar.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            toolbar.heightAnchor.constraint(equalToConstant: 44),
-            
-            textView.topAnchor.constraint(equalTo: toolbar.bottomAnchor),
-            textView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            textView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            textView.bottomAnchor.constraint(equalTo: view.bottomAnchor)
+            tableView.topAnchor.constraint(equalTo: topAnchor),
+            tableView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            tableView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            tableView.bottomAnchor.constraint(equalTo: bottomAnchor)
         ])
     }
     
-    @objc private func dismissView() {
-        dismiss(animated: true)
+    func addLogEntry(type: String, message: String) {
+        let entry = LogEntry(timestamp: Date(), type: type, message: message)
+        logEntries.append(entry)
+        
+        // Update table view
+        tableView.beginUpdates()
+        tableView.insertRows(at: [IndexPath(row: logEntries.count - 1, section: 0)], with: .automatic)
+        tableView.endUpdates()
+        
+        // Scroll to bottom
+        if !logEntries.isEmpty {
+            tableView.scrollToRow(at: IndexPath(row: logEntries.count - 1, section: 0), at: .bottom, animated: true)
+        }
     }
     
-    @objc private func copyAllHtml() {
-        UIPasteboard.general.string = htmlSource
+    func clearLogs() {
+        logEntries.removeAll()
+        tableView.reloadData()
+    }
+    
+    func copyLogsToClipboard() {
+        let formattedLogs = logEntries.map { "\($0.formattedTimestamp) [\($0.type)] \($0.message)" }.joined(separator: "\n")
+        UIPasteboard.general.string = formattedLogs
+    }
+}
+
+// MARK: - UITableViewDataSource
+extension ConsoleLogView: UITableViewDataSource {
+    func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
+        return logEntries.count
+    }
+    
+    func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
+        let cell = tableView.dequeueReusableCell(withIdentifier: "LogCell", for: indexPath)
+        let entry = logEntries[indexPath.row]
         
-        // Show a brief confirmation toast without causing lifecycle issues
-        let alert = UIAlertController(title: nil, message: "HTML copied to clipboard", preferredStyle: .alert)
-        present(alert, animated: true)
+        // Configure cell
+        cell.textLabel?.numberOfLines = 0
+        cell.textLabel?.font = UIFont.monospacedSystemFont(ofSize: 12, weight: .regular)
+        cell.textLabel?.text = "\(entry.formattedTimestamp) [\(entry.type)] \(entry.message)"
+        cell.textLabel?.textColor = entry.color
         
-        // Dismiss the alert after a short delay
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-            if alert.presentingViewController != nil {
-                alert.dismiss(animated: true)
-            }
-        }
+        return cell
+    }
+}
+
+// MARK: - UITableViewDelegate
+extension ConsoleLogView: UITableViewDelegate {
+    func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
+        tableView.deselectRow(at: indexPath, animated: true)
     }
 }

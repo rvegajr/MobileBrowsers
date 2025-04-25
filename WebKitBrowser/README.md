@@ -11,6 +11,7 @@ A powerful iOS web browser application with built-in developer tools and credent
 * Navigation controls (back, forward, refresh)
 * Support for landscape and portrait orientations
 * Handles popup windows and redirects
+* JavaScript console log viewer with timestamped output
 
 ### Developer Tools
 

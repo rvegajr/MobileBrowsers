@@ -105,6 +105,11 @@ public class BrowserActivity extends AppCompatActivity {
     private ImageButton selectorButton;
     private LinearLayout devToolsView;
     private TextView sourceCodeText;
+    private RecyclerView consoleLogRecyclerView;
+    private ConsoleLogAdapter consoleLogAdapter;
+    private List<ConsoleLogEntry> consoleLogEntries = new ArrayList<>();
+    private boolean isConsoleVisible = false;
+    private Button consoleToggleButton;
 
     // State
     private boolean isDevToolsVisible = false;
@@ -146,6 +151,9 @@ public class BrowserActivity extends AppCompatActivity {
         setupWebView();
         setupListeners();
         setupElementSelector();
+
+        // Inject console logger after WebView initialization
+        injectConsoleLogger();
 
         // Check permissions once at startup
         if (checkSelfPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
@@ -371,6 +379,26 @@ public class BrowserActivity extends AppCompatActivity {
                 }
             });
         }
+        
+        @JavascriptInterface
+        public void consoleLog(String type, String message) {
+            Log.d(TAG, "Console " + type + ": " + message);
+            
+            // Add log to the entries list
+            ConsoleLogEntry entry = new ConsoleLogEntry(type, message, new Date());
+            
+            // Update UI on main thread
+            new Handler(Looper.getMainLooper()).post(() -> {
+                consoleLogEntries.add(entry);
+                if (consoleLogAdapter != null) {
+                    consoleLogAdapter.notifyItemInserted(consoleLogEntries.size() - 1);
+                    // Scroll to bottom
+                    if (consoleLogRecyclerView != null) {
+                        consoleLogRecyclerView.scrollToPosition(consoleLogEntries.size() - 1);
+                    }
+                }
+            });
+        }
     }
 
     /**
@@ -481,157 +509,265 @@ public class BrowserActivity extends AppCompatActivity {
      * Toggles the visibility of the developer tools panel.
      */
     private void toggleDevTools() {
-        boolean isVisible = devToolsView.getVisibility() == View.VISIBLE;
-        devToolsView.setVisibility(isVisible ? View.GONE : View.VISIBLE);
-
-        if (!isVisible) {
-            // Load the HTML source
-            webView.evaluateJavascript(
-                    "(function() { try {" +
-                            "   var content = '';" +
-                            "   if (document.documentElement) {" +
-                            "       content = document.documentElement.outerHTML;" +
-                            "   } else if (document.body) {" +
-                            "       content = document.body.outerHTML;" +
-                            "   } else {" +
-                            "       content = document.getElementsByTagName('*')[0].outerHTML;" +
-                            "   }" +
-                            "   return content || document.documentElement.innerHTML;" +
-                            "} catch(e) { " +
-                            "   try {" +
-                            "       return document.getElementsByTagName('html')[0].outerHTML;" +
-                            "   } catch(e2) {" +
-                            "       return document.body.innerHTML;" +
-                            "   }" +
-                            "} })();",
-                    html -> {
-                        // Format the HTML (remove escape sequences)
-                        String formattedHtml = formatHtml(html);
-                        sourceCodeText.setText(formattedHtml);
-                    }
-            );
-
-            // Set up close button
-            Button closeButton = findViewById(R.id.btn_close_dev_tools);
-            closeButton.setOnClickListener(v -> toggleDevTools());
-
-            // Set up copy button
-            Button copyButton = findViewById(R.id.btn_copy_source);
-            copyButton.setOnClickListener(v -> copySourceToClipboard());
-        }
-    }
-
-    /**
-     * Copies the HTML source code to the clipboard
-     */
-    private void copySourceToClipboard() {
-        CharSequence sourceCode = sourceCodeText.getText();
-        if (sourceCode != null && sourceCode.length() > 0) {
-            android.content.ClipboardManager clipboard = (android.content.ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
-            android.content.ClipData clip = android.content.ClipData.newPlainText("HTML Source", sourceCode);
-            if (clipboard != null) {
-                clipboard.setPrimaryClip(clip);
-                Toast.makeText(this, "Source code copied to clipboard", Toast.LENGTH_SHORT).show();
-            } else {
-                Toast.makeText(this, "Failed to access clipboard", Toast.LENGTH_SHORT).show();
-            }
+        if (isDevToolsVisible) {
+            // Hide dev tools
+            devToolsView.setVisibility(View.GONE);
+            isDevToolsVisible = false;
+            devToolsButton.setImageResource(android.R.drawable.ic_menu_preferences);
         } else {
-            Toast.makeText(this, "No source code to copy", Toast.LENGTH_SHORT).show();
+            // Show dev tools
+            if (devToolsView == null) {
+                // Create dev tools view if not already created
+                setupDevToolsView();
+            }
+            
+            // Update the source code display
+            refreshSourceCode();
+            
+            devToolsView.setVisibility(View.VISIBLE);
+            isDevToolsVisible = true;
+            devToolsButton.setImageResource(android.R.drawable.ic_menu_close_clear_cancel);
         }
     }
 
-    private void showLoading(boolean show) {
-        if (!isFinishing()) {
-            runOnUiThread(() -> {
-                if (!isFinishing()) {
-                    progressBar.setVisibility(show ? View.VISIBLE : View.GONE);
-                    loadingIndicator.setVisibility(show ? View.VISIBLE : View.GONE);
-                    if (show) {
-                        copyAllButton.setVisibility(View.GONE);
-                        stopButton.setVisibility(View.VISIBLE);
-                        refreshButton.setVisibility(View.GONE);
-                    } else {
-                        copyAllButton.setVisibility(View.VISIBLE);
-                        stopButton.setVisibility(View.GONE);
-                        refreshButton.setVisibility(View.VISIBLE);
-                    }
+    // Sets up the developer tools view
+    private void setupDevToolsView() {
+        // Create the main container
+        devToolsView = new LinearLayout(this);
+        devToolsView.setOrientation(LinearLayout.VERTICAL);
+        devToolsView.setBackgroundColor(getResources().getColor(android.R.color.white));
+        devToolsView.setLayoutParams(new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.WRAP_CONTENT
+        ));
+        
+        // Add tab layout for different tools
+        LinearLayout tabLayout = new LinearLayout(this);
+        tabLayout.setOrientation(LinearLayout.HORIZONTAL);
+        tabLayout.setLayoutParams(new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+        ));
+        
+        // Source code tab button
+        Button sourceButton = new Button(this);
+        sourceButton.setText("Source");
+        sourceButton.setLayoutParams(new LinearLayout.LayoutParams(
+                0, LinearLayout.LayoutParams.WRAP_CONTENT, 1
+        ));
+        sourceButton.setOnClickListener(v -> showSourceView());
+        
+        // Console tab button
+        consoleToggleButton = new Button(this);
+        consoleToggleButton.setText("Console");
+        consoleToggleButton.setLayoutParams(new LinearLayout.LayoutParams(
+                0, LinearLayout.LayoutParams.WRAP_CONTENT, 1
+        ));
+        consoleToggleButton.setOnClickListener(v -> toggleConsoleView());
+        
+        // Clear console button
+        Button clearConsoleButton = new Button(this);
+        clearConsoleButton.setText("Clear");
+        clearConsoleButton.setLayoutParams(new LinearLayout.LayoutParams(
+                0, LinearLayout.LayoutParams.WRAP_CONTENT, 1
+        ));
+        clearConsoleButton.setOnClickListener(v -> clearConsoleLogs());
+        
+        // Test log button
+        Button testLogButton = new Button(this);
+        testLogButton.setText("Test Log");
+        testLogButton.setLayoutParams(new LinearLayout.LayoutParams(
+                0, LinearLayout.LayoutParams.WRAP_CONTENT, 1
+        ));
+        testLogButton.setOnClickListener(v -> testConsoleLog());
+        
+        tabLayout.addView(sourceButton);
+        tabLayout.addView(consoleToggleButton);
+        tabLayout.addView(clearConsoleButton);
+        tabLayout.addView(testLogButton);
+        
+        // Source code view
+        sourceCodeText = new TextView(this);
+        sourceCodeText.setLayoutParams(new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                400 // Fixed height for now
+        ));
+        sourceCodeText.setTextSize(12);
+        sourceCodeText.setTypeface(Typeface.MONOSPACE);
+        sourceCodeText.setTextColor(getResources().getColor(android.R.color.black));
+        sourceCodeText.setBackgroundColor(getResources().getColor(android.R.color.white));
+        
+        // Create a ScrollView for the source code
+        ScrollView sourceScrollView = new ScrollView(this);
+        sourceScrollView.setLayoutParams(new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                400
+        ));
+        sourceScrollView.addView(sourceCodeText);
+        
+        // Console log view
+        consoleLogRecyclerView = new RecyclerView(this);
+        consoleLogRecyclerView.setLayoutParams(new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                400
+        ));
+        consoleLogRecyclerView.setLayoutManager(new LinearLayoutManager(this));
+        consoleLogAdapter = new ConsoleLogAdapter(consoleLogEntries);
+        consoleLogRecyclerView.setAdapter(consoleLogAdapter);
+        
+        // Initially show source view
+        consoleLogRecyclerView.setVisibility(View.GONE);
+        isConsoleVisible = false;
+        
+        // Add components to the dev tools view
+        devToolsView.addView(tabLayout);
+        devToolsView.addView(sourceScrollView);
+        devToolsView.addView(consoleLogRecyclerView);
+        
+        // Add to the main layout
+        ((FrameLayout) findViewById(R.id.container)).addView(devToolsView);
+        devToolsView.setVisibility(View.GONE);
+        
+        // Inject the console logger script for capturing console outputs
+        injectConsoleLogger();
+    }
+
+    // Switch to source code view
+    private void showSourceView() {
+        if (devToolsView != null) {
+            sourceCodeText.getParent().setVisibility(View.VISIBLE);
+            consoleLogRecyclerView.setVisibility(View.GONE);
+            isConsoleVisible = false;
+            refreshSourceCode();
+        }
+    }
+
+    // Toggle console view visibility
+    private void toggleConsoleView() {
+        if (devToolsView != null) {
+            if (isConsoleVisible) {
+                sourceCodeText.getParent().setVisibility(View.VISIBLE);
+                consoleLogRecyclerView.setVisibility(View.GONE);
+                isConsoleVisible = false;
+            } else {
+                sourceCodeText.getParent().setVisibility(View.GONE);
+                consoleLogRecyclerView.setVisibility(View.VISIBLE);
+                isConsoleVisible = true;
+                
+                // Add a test message
+                ConsoleLogEntry entry = new ConsoleLogEntry("info", "Console view activated", new Date());
+                consoleLogEntries.add(entry);
+                consoleLogAdapter.notifyItemInserted(consoleLogEntries.size() - 1);
+                consoleLogRecyclerView.scrollToPosition(consoleLogEntries.size() - 1);
+            }
+        }
+    }
+
+    // Inject JavaScript to capture console logs
+    private void injectConsoleLogger() {
+        if (webView == null) {
+            Log.e(TAG, "Cannot inject console logger: WebView is null");
+            return;
+        }
+        
+        final String consoleScript = 
+            "console.originalLog = console.log;" +
+            "console.originalError = console.error;" +
+            "console.originalWarn = console.warn;" +
+            "console.originalInfo = console.info;" +
+            
+            "console.log = function() {" +
+            "   console.originalLog.apply(this, arguments);" +
+            "   var message = Array.prototype.slice.call(arguments).map(function(arg) {" +
+            "       return (typeof arg === 'object') ? JSON.stringify(arg) : String(arg);" + 
+            "   }).join(' ');" +
+            "   Android.consoleLog('log', message);" +
+            "};" +
+            
+            "console.error = function() {" +
+            "   console.originalError.apply(this, arguments);" +
+            "   var message = Array.prototype.slice.call(arguments).map(function(arg) {" +
+            "       return (typeof arg === 'object') ? JSON.stringify(arg) : String(arg);" + 
+            "   }).join(' ');" +
+            "   Android.consoleLog('error', message);" +
+            "};" +
+            
+            "console.warn = function() {" +
+            "   console.originalWarn.apply(this, arguments);" +
+            "   var message = Array.prototype.slice.call(arguments).map(function(arg) {" +
+            "       return (typeof arg === 'object') ? JSON.stringify(arg) : String(arg);" + 
+            "   }).join(' ');" +
+            "   Android.consoleLog('warn', message);" +
+            "};" +
+            
+            "console.info = function() {" +
+            "   console.originalInfo.apply(this, arguments);" +
+            "   var message = Array.prototype.slice.call(arguments).map(function(arg) {" +
+            "       return (typeof arg === 'object') ? JSON.stringify(arg) : String(arg);" + 
+            "   }).join(' ');" +
+            "   Android.consoleLog('info', message);" +
+            "};";
+        
+        webView.evaluateJavascript("javascript:" + consoleScript, null);
+        
+        // Test log to verify console logging is working
+        webView.evaluateJavascript("javascript:console.log('Console logger initialized');", null);
+    }
+
+    // Clear console logs
+    private void clearConsoleLogs() {
+        consoleLogEntries.clear();
+        if (consoleLogAdapter != null) {
+            consoleLogAdapter.notifyDataSetChanged();
+        }
+    }
+
+    // Refresh the source code display
+    private void refreshSourceCode() {
+        // Load the HTML source
+        webView.evaluateJavascript(
+                "(function() { try {" +
+                        "   var content = '';" +
+                        "   if (document.documentElement) {" +
+                        "       content = document.documentElement.outerHTML;" +
+                        "   } else if (document.body) {" +
+                        "       content = document.body.outerHTML;" +
+                        "   } else {" +
+                        "       content = document.getElementsByTagName('*')[0].outerHTML;" +
+                        "   }" +
+                        "   return content || document.documentElement.innerHTML;" +
+                        "} catch(e) { " +
+                        "   try {" +
+                        "       return document.getElementsByTagName('html')[0].outerHTML;" +
+                        "   } catch(e2) {" +
+                        "       return document.body.innerHTML;" +
+                        "   }" +
+                        "} })();",
+                html -> {
+                    // Format the HTML (remove escape sequences)
+                    String formattedHtml = formatHtml(html);
+                    sourceCodeText.setText(formattedHtml);
                 }
-            });
-        }
+        );
     }
 
-    /**
-     * WebViewClient to handle page navigation and loading events.
-     */
-    private class CustomWebViewClient extends WebViewClient {
-        @Override
-        public boolean shouldOverrideUrlLoading(WebView view, String url) {
-            loadUrl(url);
-            return true;
+    // Format HTML string by removing escape sequences
+    private String formatHtml(String html) {
+        if (html == null || html.isEmpty()) {
+            return "";
         }
-
-        @Override
-        public void onPageStarted(WebView view, String url, Bitmap favicon) {
-            super.onPageStarted(view, url, favicon);
-            pageLoaded = false;
-            BrowserActivity.this.showLoading(true);
-
-            // Set a timeout for page load
-            if (timeoutRunnable != null) {
-                timeoutHandler.removeCallbacks(timeoutRunnable);
-            }
-            timeoutRunnable = () -> {
-                if (!pageLoaded) {
-                    BrowserActivity.this.showLoading(false);
-                    Toast.makeText(BrowserActivity.this, "Page load timed out", Toast.LENGTH_SHORT).show();
-                }
-            };
-            timeoutHandler.postDelayed(timeoutRunnable, PAGE_LOAD_TIMEOUT);
+        
+        // Remove quotes that surround the JSON string
+        if (html.startsWith("\"") && html.endsWith("\"")) {
+            html = html.substring(1, html.length() - 1);
         }
-
-        @Override
-        public void onPageFinished(WebView view, String url) {
-            super.onPageFinished(view, url);
-
-            // Inject JavaScript to check if the page is fully loaded
-            view.evaluateJavascript(
-                    "(function() {" +
-                            "   var checkReadyState = function() {" +
-                            "       if (document.readyState === 'complete') {" +
-                            "           Android.onPageFullyLoaded();" +
-                            "       } else {" +
-                            "           setTimeout(checkReadyState, 100);" +
-                            "       }" +
-                            "   };" +
-                            "   checkReadyState();" +
-                            "   return document.readyState === 'complete';" +
-                            "})();",
-                    value -> {
-                        if (Boolean.parseBoolean(value)) {
-                            onPageFullyLoaded();
-                        }
-                    }
-            );
-
-            updateNavigationButtons();
-            updateUrlBar(url);
-            updateFavoriteButton();
-
-            // Save to history
-            if (historyManager != null) {
-                historyManager.addEntry(url, view.getTitle(), null);
-            }
-        }
-    }
-
-    private void onPageFullyLoaded() {
-        if (!isFinishing() && !pageLoaded) {  // Only process this once per page load
-            pageLoaded = true;
-            showLoading(false);
-            if (timeoutHandler != null && timeoutRunnable != null) {
-                timeoutHandler.removeCallbacks(timeoutRunnable);
-            }
-        }
+        
+        // Replace common escape sequences
+        return html.replace("\\\"", "\"")
+                  .replace("\\n", "\n")
+                  .replace("\\t", "\t")
+                  .replace("\\\\", "\\")
+                  .replace("\\r", "\r");
     }
 
     /**
@@ -762,56 +898,6 @@ public class BrowserActivity extends AppCompatActivity {
                         });
             });
         });
-    }
-
-    private String formatHtml(String html) {
-        try {
-            // Remove escaped quotes from the JavaScript string
-            html = html.substring(1, html.length() - 1)
-                    .replace("\\\"", "\"")
-                    .replace("\\n", "\n")
-                    .replace("\\r", "\r")
-                    .replace("\\t", "\t")
-                    .replace("\\u003C", "<")   // Decode \u003C to <
-                    .replace("\\u003E", ">")   // Decode \u003E to >
-                    .replace("\\u0026", "&")   // Decode \u0026 to &
-                    .replace("\\u0027", "'")   // Decode \u0027 to '
-                    .replace("\\u0022", "\""); // Decode \u0022 to "
-
-            // Basic HTML formatting (you can enhance this further)
-            StringBuilder formatted = new StringBuilder();
-            int indent = 0;
-            boolean inTag = false;
-            boolean inScriptOrStyle = false;
-
-            for (int i = 0; i < html.length(); i++) {
-                char c = html.charAt(i);
-
-                if (c == '<') {
-                    inTag = true;
-                    String peek = i + 4 <= html.length() ? html.substring(i, i + 4).toLowerCase() : "";
-                    if (peek.startsWith("</")) {
-                        indent = Math.max(0, indent - 1);
-                    }
-                    formatted.append('\n').append("  ".repeat(indent));
-                }
-
-                formatted.append(c);
-
-                if (c == '>') {
-                    inTag = false;
-                    String tag = formatted.substring(formatted.lastIndexOf("<") + 1, formatted.length() - 1).trim();
-                    if (!tag.startsWith("/") && !tag.endsWith("/") && !tag.startsWith("!--")) {
-                        indent++;
-                    }
-                }
-            }
-
-            return formatted.toString().trim();
-        } catch (Exception e) {
-            Log.e(TAG, "Error formatting HTML", e);
-            return html;  // Return unformatted HTML if formatting fails
-        }
     }
 
     private void copyToClipboardInChunks(String content) {
@@ -1225,6 +1311,16 @@ public class BrowserActivity extends AppCompatActivity {
                 );
             }
         }
+        
+        @Override
+        public void onConsoleMessage(ConsoleMessage consoleMessage) {
+            Log.d(TAG, "Console message: " + consoleMessage.message() +
+                  " -- From line " + consoleMessage.lineNumber() +
+                  " of " + consoleMessage.sourceId());
+            
+            // Already handled by our custom console.log override in injectConsoleLogger
+            super.onConsoleMessage(consoleMessage);
+        }
     }
 
     /**
@@ -1326,5 +1422,135 @@ public class BrowserActivity extends AppCompatActivity {
                 }
             })
             .show();
+    }
+
+    // Test console logging with various types of logs
+    private void testConsoleLog() {
+        String testScript = 
+            "console.log('Test log message from button');" +
+            "console.error('Test error message');" +
+            "console.warn('Test warning message');" +
+            "console.info('Test info message');" +
+            "console.log('Object test:', JSON.stringify({name: 'Test Object', value: 42}));";
+        
+        webView.evaluateJavascript("javascript:" + testScript, null);
+        
+        // Switch to console view if not already showing
+        if (!isConsoleVisible) {
+            toggleConsoleView();
+        }
+    }
+}
+
+/**
+ * Model class for console log entries
+ */
+class ConsoleLogEntry {
+    private String type;
+    private String message;
+    private Date timestamp;
+    
+    public ConsoleLogEntry(String type, String message, Date timestamp) {
+        this.type = type;
+        this.message = message;
+        this.timestamp = timestamp;
+    }
+    
+    public String getType() {
+        return type;
+    }
+    
+    public String getMessage() {
+        return message;
+    }
+    
+    public Date getTimestamp() {
+        return timestamp;
+    }
+    
+    public String getFormattedTime() {
+        SimpleDateFormat sdf = new SimpleDateFormat("HH:mm:ss.SSS", Locale.getDefault());
+        return sdf.format(timestamp);
+    }
+}
+
+/**
+ * Adapter for displaying console logs in a RecyclerView
+ */
+class ConsoleLogAdapter extends RecyclerView.Adapter<ConsoleLogAdapter.LogViewHolder> {
+    private List<ConsoleLogEntry> logEntries;
+    
+    public ConsoleLogAdapter(List<ConsoleLogEntry> logEntries) {
+        this.logEntries = logEntries;
+    }
+    
+    @NonNull
+    @Override
+    public LogViewHolder onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
+        Context context = parent.getContext();
+        LinearLayout logLayout = new LinearLayout(context);
+        logLayout.setOrientation(LinearLayout.VERTICAL);
+        logLayout.setPadding(16, 8, 16, 8);
+        logLayout.setLayoutParams(new ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT));
+        
+        TextView logText = new TextView(context);
+        logText.setTextSize(14);
+        logText.setTypeface(Typeface.MONOSPACE);
+        logText.setLayoutParams(new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT));
+        
+        TextView timestampText = new TextView(context);
+        timestampText.setTextSize(10);
+        timestampText.setTypeface(Typeface.MONOSPACE);
+        timestampText.setLayoutParams(new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT));
+        
+        logLayout.addView(timestampText);
+        logLayout.addView(logText);
+        
+        return new LogViewHolder(logLayout, logText, timestampText);
+    }
+    
+    @Override
+    public void onBindViewHolder(@NonNull LogViewHolder holder, int position) {
+        ConsoleLogEntry entry = logEntries.get(position);
+        holder.logText.setText(entry.getMessage());
+        holder.timestampText.setText(entry.getFormattedTime() + " [" + entry.getType() + "]");
+        
+        // Set color based on log type
+        switch (entry.getType()) {
+            case "error":
+                holder.logText.setTextColor(Color.RED);
+                break;
+            case "warn":
+                holder.logText.setTextColor(Color.rgb(255, 165, 0)); // Orange
+                break;
+            case "info":
+                holder.logText.setTextColor(Color.BLUE);
+                break;
+            default:
+                holder.logText.setTextColor(Color.BLACK);
+                break;
+        }
+    }
+    
+    @Override
+    public int getItemCount() {
+        return logEntries.size();
+    }
+    
+    static class LogViewHolder extends RecyclerView.ViewHolder {
+        TextView logText;
+        TextView timestampText;
+        
+        public LogViewHolder(View itemView, TextView logText, TextView timestampText) {
+            super(itemView);
+            this.logText = logText;
+            this.timestampText = timestampText;
+        }
     }
 }

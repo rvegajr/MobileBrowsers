@@ -67,6 +67,15 @@ This toolset bridges that gap by providing dedicated browser applications with b
 3. **Copy Source**: Tap the "Copy All" button to copy the entire HTML source to your clipboard
 4. **Analyze**: Paste the source into your preferred editor for analysis or sharing
 
+### Using Console Logs
+
+1. **Open Developer Tools**: Tap the menu button (three dots) and select "Developer Tools"
+2. **Switch to Console Tab**: Tap the "Console" tab in the developer tools panel
+3. **View Logs**: All JavaScript console logs will be displayed with timestamps and color-coding
+4. **Test Logging**: Use the "Test Log" button to generate sample logs
+5. **Clear Logs**: Tap the "Clear" button to clear all console logs
+6. **Copy Logs**: Tap the "Copy" button to copy all console logs to your clipboard
+
 ### Managing Favorites
 
 1. **Add a Favorite**: Navigate to a page, tap the menu button, and select "Add to Favorites"
@@ -123,10 +132,11 @@ We're continuously improving MobileBrowsers to make it even more useful for MAUI
    - View headers, payloads, and timing information
    - Filter requests by type, status, or domain
 
-3. **JavaScript Debugging**
-   - Set breakpoints in JavaScript code
+3. **JavaScript Debugging** ✓
+   - Set breakpoints in JavaScript code 
    - Inspect variables and call stack
    - Step through code execution
+   - View and analyze console logs (Implemented 2025-04-25)
 
 4. **Cross-Browser Testing**
    - Side-by-side comparison of rendering between WebKit and WebView

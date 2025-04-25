@@ -18,6 +18,7 @@ A powerful Android web browser application with built-in developer tools and cre
 * DOM inspection capabilities
 * JavaScript interaction
 * Split-view developer tools interface
+* JavaScript console log viewer with color-coded output
 
 ### Credential Management
 
