@@ -12,6 +12,7 @@ import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
+import android.graphics.Color;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.Environment;
@@ -23,8 +24,10 @@ import android.view.ContextMenu;
 import android.view.Menu;
 import android.view.MenuItem;
 import android.view.View;
+import android.view.ViewGroup;
 import android.view.inputmethod.EditorInfo;
 import android.view.inputmethod.InputMethodManager;
+import android.webkit.ConsoleMessage;
 import android.webkit.JavascriptInterface;
 import android.webkit.WebChromeClient;
 import android.webkit.WebResourceRequest;
@@ -38,9 +41,12 @@ import android.widget.FrameLayout;
 import android.widget.ImageButton;
 import android.widget.LinearLayout;
 import android.widget.ProgressBar;
+import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
+import android.graphics.Typeface;
 
+import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.appcompat.widget.PopupMenu;
 import androidx.appcompat.widget.Toolbar;
@@ -66,6 +72,7 @@ import java.io.IOException;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.List;
+import java.util.ArrayList;
 import java.util.Locale;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -625,7 +632,7 @@ public class BrowserActivity extends AppCompatActivity {
         devToolsView.addView(consoleLogRecyclerView);
         
         // Add to the main layout
-        ((FrameLayout) findViewById(R.id.container)).addView(devToolsView);
+        ((FrameLayout) findViewById(R.id.web_view_container)).addView(devToolsView);
         devToolsView.setVisibility(View.GONE);
         
         // Inject the console logger script for capturing console outputs
@@ -635,7 +642,7 @@ public class BrowserActivity extends AppCompatActivity {
     // Switch to source code view
     private void showSourceView() {
         if (devToolsView != null) {
-            sourceCodeText.getParent().setVisibility(View.VISIBLE);
+            ((View)sourceCodeText.getParent().getParent()).setVisibility(View.VISIBLE);
             consoleLogRecyclerView.setVisibility(View.GONE);
             isConsoleVisible = false;
             refreshSourceCode();
@@ -646,11 +653,11 @@ public class BrowserActivity extends AppCompatActivity {
     private void toggleConsoleView() {
         if (devToolsView != null) {
             if (isConsoleVisible) {
-                sourceCodeText.getParent().setVisibility(View.VISIBLE);
+                ((View)sourceCodeText.getParent().getParent()).setVisibility(View.VISIBLE);
                 consoleLogRecyclerView.setVisibility(View.GONE);
                 isConsoleVisible = false;
             } else {
-                sourceCodeText.getParent().setVisibility(View.GONE);
+                ((View)sourceCodeText.getParent().getParent()).setVisibility(View.GONE);
                 consoleLogRecyclerView.setVisibility(View.VISIBLE);
                 isConsoleVisible = true;
                 
@@ -1313,13 +1320,94 @@ public class BrowserActivity extends AppCompatActivity {
         }
         
         @Override
-        public void onConsoleMessage(ConsoleMessage consoleMessage) {
+        public boolean onConsoleMessage(ConsoleMessage consoleMessage) {
             Log.d(TAG, "Console message: " + consoleMessage.message() +
                   " -- From line " + consoleMessage.lineNumber() +
                   " of " + consoleMessage.sourceId());
             
             // Already handled by our custom console.log override in injectConsoleLogger
-            super.onConsoleMessage(consoleMessage);
+            return super.onConsoleMessage(consoleMessage);
+        }
+    }
+
+    /**
+     * Custom WebViewClient class to handle page navigation events.
+     */
+    private class CustomWebViewClient extends WebViewClient {
+        @Override
+        public boolean shouldOverrideUrlLoading(WebView view, String url) {
+            // Handle URL loading within the app
+            loadUrl(url);
+            return true;
+        }
+
+        @Override
+        public void onPageStarted(WebView view, String url, Bitmap favicon) {
+            super.onPageStarted(view, url, favicon);
+            // Show loading indicators
+            pageLoaded = false;
+            showLoading(true);
+
+            // Set a timeout for page load
+            if (timeoutRunnable != null) {
+                timeoutHandler.removeCallbacks(timeoutRunnable);
+            }
+
+            timeoutRunnable = () -> {
+                if (!pageLoaded) {
+                    showLoading(false);
+                    Toast.makeText(BrowserActivity.this, "Page load timed out", Toast.LENGTH_SHORT).show();
+                }
+            };
+            timeoutHandler.postDelayed(timeoutRunnable, PAGE_LOAD_TIMEOUT);
+        }
+
+        @Override
+        public void onPageFinished(WebView view, String url) {
+            super.onPageFinished(view, url);
+
+            // Inject JavaScript to check if page is fully loaded
+            view.evaluateJavascript(
+                    "(function() {" +
+                            "   var checkReadyState = function() {" +
+                            "       if (document.readyState === 'complete') {" +
+                            "           window.Android.onPageFullyLoaded();" +
+                            "       } else {" +
+                            "           setTimeout(checkReadyState, 100);" +
+                            "       }" +
+                            "   };" +
+                            "   checkReadyState();" +
+                            "   return document.readyState === 'complete';" +
+                            "})();",
+                    value -> {
+                        if (Boolean.parseBoolean(value)) {
+                            onPageFullyLoaded();
+                        }
+                    }
+            );
+
+            // Update UI elements
+            updateNavigationButtons();
+            updateUrlBar(url);
+
+            // Save to history
+            if (historyManager != null) {
+                historyManager.addEntry(url, view.getTitle(), null);
+            }
+        }
+    }
+
+    /**
+     * Called when the page is fully loaded.
+     */
+    private void onPageFullyLoaded() {
+        if (!isFinishing() && !pageLoaded) {
+            pageLoaded = true;
+            showLoading(false);
+            
+            if (timeoutHandler != null && timeoutRunnable != null) {
+                timeoutHandler.removeCallbacks(timeoutRunnable);
+            }
         }
     }
 
@@ -1358,19 +1446,16 @@ public class BrowserActivity extends AppCompatActivity {
     }
 
     /**
-     * Toggles the loading state of the browser.
-     *
-     * @param isLoading True if the page is loading, false otherwise.
+     * Show or hide loading indicators
+     * @param show True to show loading indicators, false to hide
      */
-    private void toggleLoadingState(boolean isLoading) {
-        if (isLoading) {
+    private void showLoading(boolean show) {
+        if (show) {
             progressBar.setVisibility(View.VISIBLE);
             loadingIndicator.setVisibility(View.VISIBLE);
         } else {
             progressBar.setVisibility(View.GONE);
             loadingIndicator.setVisibility(View.GONE);
-            // Update navigation buttons when loading is complete
-            updateNavigationButtons();
         }
     }
 

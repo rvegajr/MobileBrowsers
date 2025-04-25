@@ -132,7 +132,7 @@ We're continuously improving MobileBrowsers to make it even more useful for MAUI
    - View headers, payloads, and timing information
    - Filter requests by type, status, or domain
 
-3. **JavaScript Debugging** ✓
+3. **JavaScript Debugging** 
    - Set breakpoints in JavaScript code 
    - Inspect variables and call stack
    - Step through code execution
@@ -200,23 +200,41 @@ We welcome contributions from the community! If you're interested in contributin
 
 ### Setting Up WebViewBrowser (Android)
 
-1. **Setup using Android Studio**:
-
-   ```bash
-   # Open Android Studio
-   /bin/zsh -i -c 'source ~/.zshrc && open -a "Android Studio" WebViewBrowser'
-   ```
-   
-   - Let Android Studio sync the Gradle files
-   - Configure an emulator via AVD Manager (Tools → AVD Manager)
-   - Click the "Run" button to build and deploy
-
-2. **Using automation scripts**:
+1. **Open in Android Studio**:
 
    ```bash
    cd WebViewBrowser
-   /bin/zsh -i -c 'source ~/.zshrc && ./gradlew installDebug'
+   /bin/zsh -i -c 'source ~/.zshrc && open -a "Android Studio" .'
    ```
+
+2. **Build and Run**:
+
+   - Select your target device/emulator
+   - Click Run (▶) to build and deploy
+
+### Verify Builds Script
+
+For quick verification that both iOS and Android projects build successfully, use the included verification script:
+
+```bash
+/bin/zsh -i -c 'source ~/.zshrc && ./verify_builds.sh'
+```
+
+This script:
+- Checks for required development environments (Android Studio, Xcode)
+- Verifies all necessary build tools are available
+- Builds both projects with appropriate settings
+- Reports build success or failure with detailed logging
+- Automatically bypasses code signing for development builds
+
+## Recent Updates
+
+### April 25, 2025
+- Added JavaScript console log viewing functionality to both Android and iOS browsers
+- Implemented color-coded log entries with timestamp display
+- Fixed various build issues for both platforms
+- Added build verification script for seamless cross-platform development
+- Standardized TabView UI for switching between source and console views
 
 ## Tips for MAUI Developers
 
