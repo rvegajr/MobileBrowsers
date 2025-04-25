@@ -1,7 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">WebView Browser</string>
-    <string name="enter_url_hint">Enter URL</string>
     <string name="action_back">Back</string>
     <string name="action_forward">Forward</string>
     <string name="action_refresh">Refresh</string>
@@ -9,7 +8,8 @@
     <string name="action_history">History</string>
     <string name="action_credentials">Credentials</string>
     <string name="action_variables">Variables</string>
-    <string name="action_dev_tools">Dev Tools</string>
+    <string name="action_dev_tools">Developer Tools</string>
+    <string name="action_copy_all">Copy All Content</string>
     <string name="action_menu">Menu</string>
     <string name="action_share">Share</string>
     <string name="action_settings">Settings</string>
@@ -17,6 +17,7 @@
     <string name="action_clear_history">Clear history</string>
     <string name="action_favorite">Favorite</string>
     <string name="action_favorites">Favorites</string>
+    <string name="enter_url_hint">Enter URL</string>
     
     <string name="history_title">Browsing History</string>
     <string name="variables_title">Form Variables</string>

@@ -1,0 +1,31 @@
+platform :ios, '14.0'
+
+target 'WebKitBrowser' do
+  use_frameworks!
+  
+  # Dependencies previously installed in the project
+  pod 'FLEX', :configurations => ['Debug']  # For debugging UI
+  pod 'KeychainAccess'                      # For secure credential storage
+  pod 'MBProgressHUD'                       # For activity indicators
+  pod 'ReachabilitySwift'                   # For network connectivity checks
+  pod 'SnapKit'                             # For programmatic UI constraints
+  pod 'SwiftLint'                           # For code quality
+  pod 'SwipeCellKit'                        # For swipeable table cells
+  pod 'Toast-Swift'                         # For toast notifications
+  
+  target 'WebKitBrowserTests' do
+    inherit! :search_paths
+    # Pods for testing
+    pod 'Quick'                             # BDD testing framework
+    pod 'Nimble'                            # Matcher framework for tests
+    pod 'CwlPreconditionTesting'            # For testing preconditions
+  end
+end
+
+post_install do |installer|
+  installer.pods_project.targets.each do |target|
+    target.build_configurations.each do |config|
+      config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '14.0'
+    end
+  end
+end

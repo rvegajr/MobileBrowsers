@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:padding="16dp">
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Enter CSS selector (e.g., .class-name, #id-name)"
+        android:textSize="14sp"
+        android:layout_marginBottom="8dp"/>
+
+    <EditText
+        android:id="@+id/selector_input"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:hint="CSS Selector"
+        android:inputType="text"
+        android:fontFamily="monospace"/>
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Examples:\n.expense-form\n#claim-details\n.form-group input[type='text']"
+        android:textSize="12sp"
+        android:fontFamily="monospace"
+        android:layout_marginTop="8dp"/>
+
+</LinearLayout>

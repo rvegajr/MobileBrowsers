@@ -42,6 +42,22 @@ A powerful iOS web browser application with built-in developer tools and credent
 * WebKit Framework
 * Security Framework (Keychain)
 
+## Recent Updates
+
+* Fixed iOS 14.0 compatibility issues in HistoryListViewController with cell configuration API
+* Added proper availability checking for iOS 14.0 APIs
+* Restored CocoaPods configuration with explicit Podfile
+* Integrated the following CocoaPods dependencies:
+  * FLEX (debugging UI in development builds)
+  * KeychainAccess (secure credential storage)
+  * MBProgressHUD (activity indicators)
+  * ReachabilitySwift (network connectivity)
+  * SnapKit (programmatic constraints)
+  * SwiftLint (code quality)
+  * SwipeCellKit (swipeable table cells)
+  * Toast-Swift (notifications)
+  * Quick, Nimble, CwlPreconditionTesting (testing frameworks)
+
 ## Project Structure
 
 ```plaintext

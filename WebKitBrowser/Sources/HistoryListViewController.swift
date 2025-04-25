@@ -128,18 +128,25 @@ class HistoryListViewController: UIViewController, UITableViewDelegate, UITableV
         let entry = filteredEntries[indexPath.row]
         
         // Configure cell
-        var content = cell.defaultContentConfiguration()
-        content.text = entry.title
-        content.secondaryText = entry.url.absoluteString
-        
-        // Format date
-        let dateFormatter = DateFormatter()
-        dateFormatter.dateStyle = .medium
-        dateFormatter.timeStyle = .short
-        content.secondaryTextProperties.color = .gray
-        
-        // Set cell content
-        cell.contentConfiguration = content
+        if #available(iOS 14.0, *) {
+            var content = cell.defaultContentConfiguration()
+            content.text = entry.title
+            content.secondaryText = entry.url.absoluteString
+            
+            // Format date
+            let dateFormatter = DateFormatter()
+            dateFormatter.dateStyle = .medium
+            dateFormatter.timeStyle = .short
+            content.secondaryTextProperties.color = .gray
+            
+            // Set cell content
+            cell.contentConfiguration = content
+        } else {
+            // Fallback for iOS 13 (should not be needed with deployment target of 14.0, but adding for safety)
+            cell.textLabel?.text = entry.title
+            cell.detailTextLabel?.text = entry.url.absoluteString
+            cell.detailTextLabel?.textColor = .gray
+        }
         
         return cell
     }

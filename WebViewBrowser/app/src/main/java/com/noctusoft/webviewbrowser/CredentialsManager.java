@@ -273,4 +273,89 @@ public class CredentialsManager {
         
         return cipher.doFinal(encryptedData);
     }
+
+    /**
+     * Gets credentials for a specific domain.
+     *
+     * @param url The URL to get credentials for
+     * @return List of credentials for the domain
+     */
+    public List<Credentials> getCredentialsForDomain(String url) {
+        if (url == null) {
+            return new ArrayList<>();
+        }
+
+        try {
+            String domain = getDomainFromUrl(url);
+            List<String> domains = getAllDomains();
+            List<Credentials> result = new ArrayList<>();
+
+            for (String storedDomain : domains) {
+                if (storedDomain.equals(domain)) {
+                    byte[] encryptedData = getEncryptedCredentials(domain);
+                    if (encryptedData != null) {
+                        byte[] decryptedData = decrypt(encryptedData);
+                        if (decryptedData != null) {
+                            Credentials credentials = deserializeCredentials(decryptedData);
+                            if (credentials != null) {
+                                result.add(credentials);
+                            }
+                        }
+                    }
+                }
+            }
+
+            return result;
+        } catch (Exception e) {
+            Log.e(TAG, "Error getting credentials for domain", e);
+            return new ArrayList<>();
+        }
+    }
+
+    /**
+     * Extracts the domain from a URL.
+     *
+     * @param url The URL to extract domain from
+     * @return The domain part of the URL
+     */
+    private String getDomainFromUrl(String url) {
+        try {
+            String domain = url.toLowerCase();
+            if (domain.startsWith("http://")) {
+                domain = domain.substring(7);
+            } else if (domain.startsWith("https://")) {
+                domain = domain.substring(8);
+            }
+
+            int slashIndex = domain.indexOf('/');
+            if (slashIndex != -1) {
+                domain = domain.substring(0, slashIndex);
+            }
+
+            return domain;
+        } catch (Exception e) {
+            Log.e(TAG, "Error extracting domain from URL", e);
+            return url;
+        }
+    }
+
+    private byte[] getEncryptedCredentials(String domain) {
+        String encodedCredentials = sharedPreferences.getString(domain, null);
+        if (encodedCredentials == null) {
+            return null;
+        }
+
+        return Base64.decode(encodedCredentials, Base64.DEFAULT);
+    }
+
+    private Credentials deserializeCredentials(byte[] data) {
+        try {
+            ByteArrayInputStream bais = new ByteArrayInputStream(data);
+            ObjectInputStream ois = new ObjectInputStream(bais);
+            return (Credentials) ois.readObject();
+        } catch (Exception e) {
+            Log.e(TAG, "Error deserializing credentials", e);
+            return null;
+        }
+    }
 }

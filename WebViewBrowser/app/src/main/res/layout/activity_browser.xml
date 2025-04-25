@@ -164,12 +164,23 @@
 
             <ImageButton
                 android:id="@+id/btn_dev_tools"
-                android:layout_width="0dp"
+                android:layout_width="48dp"
                 android:layout_height="match_parent"
-                android:layout_weight="1"
                 android:background="?attr/selectableItemBackgroundBorderless"
                 android:contentDescription="@string/action_dev_tools"
-                android:src="@android:drawable/ic_menu_more" />
+                android:src="@android:drawable/ic_menu_manage" />
+
+            <ImageButton
+                android:id="@+id/btn_copy_all"
+                style="@style/ToolbarButton"
+                android:contentDescription="Copy All Content"
+                android:src="@drawable/ic_content_copy" />
+
+            <ImageButton
+                android:id="@+id/selector_button"
+                style="@style/ToolbarButton"
+                android:contentDescription="Select Elements"
+                android:src="@drawable/ic_filter_list" />
 
         </LinearLayout>
     </LinearLayout>

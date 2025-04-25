@@ -1,0 +1,73 @@
+PODS:
+  - CwlCatchException (2.2.1):
+    - CwlCatchExceptionSupport (~> 2.2.1)
+  - CwlCatchExceptionSupport (2.2.1)
+  - CwlMachBadInstructionHandler (2.2.2)
+  - CwlPosixPreconditionTesting (2.2.2)
+  - CwlPreconditionTesting (2.2.2):
+    - CwlCatchException (~> 2.2.1)
+    - CwlMachBadInstructionHandler (~> 2.2.2)
+    - CwlPosixPreconditionTesting (~> 2.2.2)
+  - FLEX (5.22.10)
+  - KeychainAccess (4.2.2)
+  - MBProgressHUD (1.2.0)
+  - Nimble (13.7.1):
+    - CwlPreconditionTesting (~> 2.2.0)
+  - Quick (7.6.2)
+  - ReachabilitySwift (5.2.4)
+  - SnapKit (5.7.1)
+  - SwiftLint (0.58.2)
+  - SwipeCellKit (2.7.1)
+  - Toast-Swift (5.1.1)
+
+DEPENDENCIES:
+  - CwlPreconditionTesting
+  - FLEX
+  - KeychainAccess
+  - MBProgressHUD
+  - Nimble
+  - Quick
+  - ReachabilitySwift
+  - SnapKit
+  - SwiftLint
+  - SwipeCellKit
+  - Toast-Swift
+
+SPEC REPOS:
+  trunk:
+    - CwlCatchException
+    - CwlCatchExceptionSupport
+    - CwlMachBadInstructionHandler
+    - CwlPosixPreconditionTesting
+    - CwlPreconditionTesting
+    - FLEX
+    - KeychainAccess
+    - MBProgressHUD
+    - Nimble
+    - Quick
+    - ReachabilitySwift
+    - SnapKit
+    - SwiftLint
+    - SwipeCellKit
+    - Toast-Swift
+
+SPEC CHECKSUMS:
+  CwlCatchException: 7acc161b299a6de7f0a46a6ed741eae2c8b4d75a
+  CwlCatchExceptionSupport: 54ccab8d8c78907b57f99717fb19d4cc3bce02dc
+  CwlMachBadInstructionHandler: dae4fdd124d45c9910ac240287cc7b898f4502a1
+  CwlPosixPreconditionTesting: ecd095aa2129e740b44301c34571e8d85906fb88
+  CwlPreconditionTesting: 67a0047dd4de4382b93442c0e3f25207f984f35a
+  FLEX: f21ee4f498eed3f8a1eded66b21939fd3b7a22ce
+  KeychainAccess: c0c4f7f38f6fc7bbe58f5702e25f7bd2f65abf51
+  MBProgressHUD: 3ee5efcc380f6a79a7cc9b363dd669c5e1ae7406
+  Nimble: 317d713c30c3336dd8571da1889f7ec3afc626e8
+  Quick: b8bec97cd4b9f21da0472d45580f763b801fc353
+  ReachabilitySwift: 32793e867593cfc1177f5d16491e3a197d2fccda
+  SnapKit: d612e99e678a2d3b95bf60b0705ed0a35c03484a
+  SwiftLint: 365bcd9ffc83d0deb874e833556d82549919d6cd
+  SwipeCellKit: 3972254a826da74609926daf59b08d6c72e619ea
+  Toast-Swift: 7a03a532afe3a560d4044bc7c237e2864d295173
+
+PODFILE CHECKSUM: fe9da14f8c0e64f8440a54b0165c367b89d2e83b
+
+COCOAPODS: 1.16.2

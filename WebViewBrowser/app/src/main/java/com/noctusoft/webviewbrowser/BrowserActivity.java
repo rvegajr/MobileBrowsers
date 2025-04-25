@@ -3,14 +3,21 @@ package com.noctusoft.webviewbrowser;
 import android.Manifest;
 import android.annotation.SuppressLint;
 import android.app.Activity;
+import android.app.AlertDialog;
+import android.app.ProgressDialog;
 import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
+import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
 import android.net.Uri;
 import android.os.Bundle;
+import android.os.Environment;
+import android.os.Handler;
+import android.os.Looper;
+import android.provider.Settings;
 import android.util.Log;
 import android.view.ContextMenu;
 import android.view.Menu;
@@ -25,6 +32,7 @@ import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.widget.Button;
+import android.widget.CheckBox;
 import android.widget.EditText;
 import android.widget.FrameLayout;
 import android.widget.ImageButton;
@@ -33,10 +41,10 @@ import android.widget.ProgressBar;
 import android.widget.TextView;
 import android.widget.Toast;
 
-import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.appcompat.widget.PopupMenu;
 import androidx.appcompat.widget.Toolbar;
+import androidx.core.content.FileProvider;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
@@ -48,13 +56,22 @@ import com.noctusoft.webviewbrowser.ui.FavoritesAdapter;
 import com.noctusoft.webviewbrowser.ui.HistoryListActivity;
 import com.noctusoft.webviewbrowser.ui.VariableManagerActivity;
 
+import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.io.ByteArrayOutputStream;
+import java.io.FileWriter;
+import java.io.File;
+import java.io.IOException;
+import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.List;
+import java.util.Locale;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * Main activity for the browser app with WebView functionality.
@@ -65,6 +82,11 @@ public class BrowserActivity extends AppCompatActivity {
     private static final String DEFAULT_URL = "https://www.google.com";
     private static final String STATE_URL = "current_url";
     private static final String PREF_LAST_SESSION = "last_browsing_session";
+    private static final String PREF_SHOW_WELCOME = "show_welcome_dialog";
+    private static final int PAGE_LOAD_TIMEOUT = 30000; // 30 seconds timeout
+    private static final int MAX_CLIPBOARD_SIZE = 393216; // ~384KB limit for clipboard
+    private static final int PERMISSION_REQUEST_CODE = 1001;
+    private static final int SELECTOR_TIMEOUT = 5000; // 5 seconds timeout for element selection
 
     // UI components
     private WebView webView;
@@ -79,24 +101,32 @@ public class BrowserActivity extends AppCompatActivity {
     private ImageButton variablesButton;
     private ImageButton historyButton;
     private ImageButton devToolsButton;
+    private ImageButton copyAllButton;
+    private ImageButton selectorButton;
     private LinearLayout devToolsView;
     private TextView sourceCodeText;
 
     // State
     private boolean isDevToolsVisible = false;
+    private boolean pageLoaded = false;
+    private boolean isSelectorMode = false;
+    private Handler timeoutHandler;
+    private Runnable timeoutRunnable;
     private BrowsingSession currentSession;
     private CredentialsManager credentialsManager;
     private HistoryManager historyManager;
     private VariablesManager variablesManager;
     private FavoritesManager favoritesManager;
-
-    // Class level declaration for favorites dialog
+    private String currentSelector = "";
     private AlertDialog favoritesDialog;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_browser);
+
+        // Initialize handlers
+        timeoutHandler = new Handler(getMainLooper());
 
         // Set up toolbar
         Toolbar toolbar = findViewById(R.id.toolbar);
@@ -115,6 +145,21 @@ public class BrowserActivity extends AppCompatActivity {
         setupUIComponents();
         setupWebView();
         setupListeners();
+        setupElementSelector();
+
+        // Check permissions once at startup
+        if (checkSelfPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(new String[]{
+                Manifest.permission.WRITE_EXTERNAL_STORAGE,
+                Manifest.permission.READ_EXTERNAL_STORAGE
+            }, PERMISSION_REQUEST_CODE);
+        }
+
+        // Show welcome dialog if needed, regardless of permissions
+        SharedPreferences prefs = getPreferences(MODE_PRIVATE);
+        if (prefs.getBoolean(PREF_SHOW_WELCOME, true)) {
+            showWelcomeDialog();
+        }
 
         // Handle intent or restore state
         handleIntentOrRestoreState(savedInstanceState);
@@ -137,6 +182,8 @@ public class BrowserActivity extends AppCompatActivity {
         variablesButton = findViewById(R.id.btn_variables);
         historyButton = findViewById(R.id.btn_history);
         devToolsButton = findViewById(R.id.btn_dev_tools);
+        copyAllButton = findViewById(R.id.btn_copy_all);
+        selectorButton = findViewById(R.id.selector_button);
         devToolsView = findViewById(R.id.dev_tools_view);
         sourceCodeText = findViewById(R.id.source_code_text);
 
@@ -145,6 +192,7 @@ public class BrowserActivity extends AppCompatActivity {
         loadingIndicator.setVisibility(View.GONE);
         devToolsView.setVisibility(View.GONE);
         stopButton.setVisibility(View.GONE);
+        copyAllButton.setVisibility(View.GONE);
     }
 
     /**
@@ -212,6 +260,8 @@ public class BrowserActivity extends AppCompatActivity {
 
         devToolsButton.setOnClickListener(v -> toggleDevTools());
 
+        copyAllButton.setOnClickListener(v -> copyAllContent());
+
         // Go button
         ImageButton goButton = findViewById(R.id.btn_go);
         goButton.setOnClickListener(v -> {
@@ -223,6 +273,103 @@ public class BrowserActivity extends AppCompatActivity {
         Button closeButton = findViewById(R.id.btn_close_dev_tools);
         if (closeButton != null) {
             closeButton.setOnClickListener(v -> toggleDevTools());
+        }
+    }
+
+    private void setupElementSelector() {
+        selectorButton = findViewById(R.id.selector_button);
+        selectorButton.setOnClickListener(v -> showSelectorDialog());
+    }
+
+    private void showSelectorDialog() {
+        View dialogView = getLayoutInflater().inflate(R.layout.dialog_selector, null);
+        EditText selectorInput = dialogView.findViewById(R.id.selector_input);
+        selectorInput.setText(currentSelector);
+
+        new AlertDialog.Builder(this)
+            .setTitle("Element Selector")
+            .setView(dialogView)
+            .setPositiveButton("Apply", (dialog, which) -> {
+                String selector = selectorInput.getText().toString().trim();
+                if (!selector.isEmpty()) {
+                    currentSelector = selector;
+                    findAndHighlightElements(selector);
+                }
+            })
+            .setNeutralButton("Test", (dialog, which) -> {
+                String selector = selectorInput.getText().toString().trim();
+                if (!selector.isEmpty()) {
+                    testSelector(selector);
+                }
+            })
+            .setNegativeButton("Cancel", null)
+            .show();
+    }
+
+    private void findAndHighlightElements(String selector) {
+        String js = 
+            "javascript:(function() {" +
+            "   try {" +
+            "       var elements = document.querySelectorAll('" + selector.replace("'", "\\'") + "');" +
+            "       if (elements.length === 0) {" +
+            "           Android.onElementsFound(false, 'No elements found');" +
+            "           return;" +
+            "       }" +
+            "       var results = [];" +
+            "       elements.forEach(function(el) {" +
+            "           el.style.outline = '2px solid red';" +
+            "           results.push(el.outerHTML);" +
+            "       });" +
+            "       setTimeout(function() {" +
+            "           elements.forEach(function(el) {" +
+            "               el.style.outline = '';" +
+            "           });" +
+            "       }, " + SELECTOR_TIMEOUT + ");" +
+            "       Android.onElementsFound(true, JSON.stringify(results));" +
+            "   } catch(e) {" +
+            "       Android.onElementsFound(false, e.toString());" +
+            "   }" +
+            "})();";
+        
+        webView.evaluateJavascript(js, null);
+    }
+
+    private void testSelector(String selector) {
+        String js = 
+            "javascript:(function() {" +
+            "   try {" +
+            "       var elements = document.querySelectorAll('" + selector.replace("'", "\\'") + "');" +
+            "       Android.onElementsFound(true, 'Found ' + elements.length + ' elements');" +
+            "   } catch(e) {" +
+            "       Android.onElementsFound(false, e.toString());" +
+            "   }" +
+            "})();";
+        
+        webView.evaluateJavascript(js, null);
+    }
+
+    private class WebAppInterface {
+        @JavascriptInterface
+        public void onElementsFound(boolean success, String result) {
+            runOnUiThread(() -> {
+                if (success) {
+                    if (result.startsWith("[")) {
+                        // We got HTML content
+                        try {
+                            JSONObject json = new JSONObject();
+                            json.put("elements", new JSONArray(result));
+                            copyToClipboardInChunks(json.toString(2));
+                        } catch (Exception e) {
+                            Toast.makeText(BrowserActivity.this, "Error processing elements: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+                        }
+                    } else {
+                        // We got a test result
+                        Toast.makeText(BrowserActivity.this, result, Toast.LENGTH_SHORT).show();
+                    }
+                } else {
+                    Toast.makeText(BrowserActivity.this, "Error: " + result, Toast.LENGTH_SHORT).show();
+                }
+            });
         }
     }
 
@@ -340,7 +487,23 @@ public class BrowserActivity extends AppCompatActivity {
         if (!isVisible) {
             // Load the HTML source
             webView.evaluateJavascript(
-                    "(function() { return document.documentElement.outerHTML; })();",
+                    "(function() { try {" +
+                            "   var content = '';" +
+                            "   if (document.documentElement) {" +
+                            "       content = document.documentElement.outerHTML;" +
+                            "   } else if (document.body) {" +
+                            "       content = document.body.outerHTML;" +
+                            "   } else {" +
+                            "       content = document.getElementsByTagName('*')[0].outerHTML;" +
+                            "   }" +
+                            "   return content || document.documentElement.innerHTML;" +
+                            "} catch(e) { " +
+                            "   try {" +
+                            "       return document.getElementsByTagName('html')[0].outerHTML;" +
+                            "   } catch(e2) {" +
+                            "       return document.body.innerHTML;" +
+                            "   }" +
+                            "} })();",
                     html -> {
                         // Format the HTML (remove escape sequences)
                         String formattedHtml = formatHtml(html);
@@ -377,48 +540,366 @@ public class BrowserActivity extends AppCompatActivity {
         }
     }
 
-    /**
-     * Formats HTML for display.
-     */
-    private String formatHtml(String html) {
-        if (html == null) return "";
+    private void showLoading(boolean show) {
+        if (!isFinishing()) {
+            runOnUiThread(() -> {
+                if (!isFinishing()) {
+                    progressBar.setVisibility(show ? View.VISIBLE : View.GONE);
+                    loadingIndicator.setVisibility(show ? View.VISIBLE : View.GONE);
+                    if (show) {
+                        copyAllButton.setVisibility(View.GONE);
+                        stopButton.setVisibility(View.VISIBLE);
+                        refreshButton.setVisibility(View.GONE);
+                    } else {
+                        copyAllButton.setVisibility(View.VISIBLE);
+                        stopButton.setVisibility(View.GONE);
+                        refreshButton.setVisibility(View.VISIBLE);
+                    }
+                }
+            });
+        }
+    }
 
-        // Remove quotes added by evaluateJavascript
-        if (html.startsWith("\"") && html.endsWith("\"")) {
-            html = html.substring(1, html.length() - 1);
+    /**
+     * WebViewClient to handle page navigation and loading events.
+     */
+    private class CustomWebViewClient extends WebViewClient {
+        @Override
+        public boolean shouldOverrideUrlLoading(WebView view, String url) {
+            loadUrl(url);
+            return true;
+        }
+
+        @Override
+        public void onPageStarted(WebView view, String url, Bitmap favicon) {
+            super.onPageStarted(view, url, favicon);
+            pageLoaded = false;
+            BrowserActivity.this.showLoading(true);
+
+            // Set a timeout for page load
+            if (timeoutRunnable != null) {
+                timeoutHandler.removeCallbacks(timeoutRunnable);
+            }
+            timeoutRunnable = () -> {
+                if (!pageLoaded) {
+                    BrowserActivity.this.showLoading(false);
+                    Toast.makeText(BrowserActivity.this, "Page load timed out", Toast.LENGTH_SHORT).show();
+                }
+            };
+            timeoutHandler.postDelayed(timeoutRunnable, PAGE_LOAD_TIMEOUT);
+        }
+
+        @Override
+        public void onPageFinished(WebView view, String url) {
+            super.onPageFinished(view, url);
+
+            // Inject JavaScript to check if the page is fully loaded
+            view.evaluateJavascript(
+                    "(function() {" +
+                            "   var checkReadyState = function() {" +
+                            "       if (document.readyState === 'complete') {" +
+                            "           Android.onPageFullyLoaded();" +
+                            "       } else {" +
+                            "           setTimeout(checkReadyState, 100);" +
+                            "       }" +
+                            "   };" +
+                            "   checkReadyState();" +
+                            "   return document.readyState === 'complete';" +
+                            "})();",
+                    value -> {
+                        if (Boolean.parseBoolean(value)) {
+                            onPageFullyLoaded();
+                        }
+                    }
+            );
+
+            updateNavigationButtons();
+            updateUrlBar(url);
+            updateFavoriteButton();
+
+            // Save to history
+            if (historyManager != null) {
+                historyManager.addEntry(url, view.getTitle(), null);
+            }
+        }
+    }
+
+    private void onPageFullyLoaded() {
+        if (!isFinishing() && !pageLoaded) {  // Only process this once per page load
+            pageLoaded = true;
+            showLoading(false);
+            if (timeoutHandler != null && timeoutRunnable != null) {
+                timeoutHandler.removeCallbacks(timeoutRunnable);
+            }
+        }
+    }
+
+    /**
+     * Copies the HTML content of the page to the clipboard.
+     */
+    private void copyAllContent() {
+        if (!pageLoaded) {
+            Toast.makeText(this, "Please wait for the page to finish loading", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        // Create and show progress dialog
+        android.app.ProgressDialog progressDialog = new android.app.ProgressDialog(this);
+        progressDialog.setProgressStyle(android.app.ProgressDialog.STYLE_HORIZONTAL);
+        progressDialog.setTitle("Copying Content");
+        progressDialog.setMessage("Processing page content...");
+        progressDialog.setMax(100);
+        progressDialog.setCancelable(false);
+        progressDialog.show();
+
+        // Simulate progress updates
+        Handler progressHandler = new Handler(getMainLooper());
+        AtomicInteger progress = new AtomicInteger(0);
+        Runnable progressUpdate = new Runnable() {
+            @Override
+            public void run() {
+                if (!isFinishing() && progress.get() < 90) {  // Leave room for final processing
+                    progress.addAndGet(5);
+                    progressDialog.setProgress(progress.get());
+                    progressHandler.postDelayed(this, 100);
+                }
+            }
+        };
+        progressHandler.post(progressUpdate);
+
+        // Get content on background thread
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        executor.execute(() -> {
+            if (isFinishing()) {
+                progressDialog.dismiss();
+                executor.shutdown();
+                return;
+            }
+
+            webView.post(() -> {
+                if (isFinishing()) {
+                    progressDialog.dismiss();
+                    executor.shutdown();
+                    return;
+                }
+
+                webView.evaluateJavascript(
+                        "(function() { try {" +
+                                "   var content = '';" +
+                                "   if (document.documentElement) {" +
+                                "       content = document.documentElement.outerHTML;" +
+                                "   } else if (document.body) {" +
+                                "       content = document.body.outerHTML;" +
+                                "   } else {" +
+                                "       content = document.getElementsByTagName('*')[0].outerHTML;" +
+                                "   }" +
+                                "   return content || document.documentElement.innerHTML;" +
+                                "} catch(e) { " +
+                                "   try {" +
+                                "       return document.getElementsByTagName('html')[0].outerHTML;" +
+                                "   } catch(e2) {" +
+                                "       return document.body.innerHTML;" +
+                                "   }" +
+                                "} })();",
+                        value -> {
+                            if (isFinishing()) {
+                                progressDialog.dismiss();
+                                executor.shutdown();
+                                return;
+                            }
+
+                            if (value != null && !value.equals("null")) {
+                                // Process on background thread
+                                executor.execute(() -> {
+                                    if (isFinishing()) {
+                                        progressDialog.dismiss();
+                                        executor.shutdown();
+                                        return;
+                                    }
+
+                                    String html = formatHtml(value);
+                                    if (html == null || html.trim().isEmpty()) {
+                                        runOnUiThread(() -> {
+                                            if (!isFinishing()) {
+                                                progressDialog.dismiss();
+                                                Toast.makeText(BrowserActivity.this, "Error: Could not access page content", Toast.LENGTH_SHORT).show();
+                                            }
+                                            executor.shutdown();
+                                        });
+                                        return;
+                                    }
+
+                                    // Update UI on main thread
+                                    runOnUiThread(() -> {
+                                        try {
+                                            if (!isFinishing()) {
+                                                progressDialog.setProgress(95);
+                                                copyToClipboardInChunks(html);
+                                                progressDialog.setProgress(100);
+                                                progressHandler.removeCallbacks(progressUpdate);
+                                                progressDialog.dismiss();
+                                            }
+                                        } catch (Exception e) {
+                                            Log.e(TAG, "Error copying content", e);
+                                            if (!isFinishing()) {
+                                                progressDialog.dismiss();
+                                                Toast.makeText(BrowserActivity.this, "Error copying content: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+                                            }
+                                        } finally {
+                                            executor.shutdown();
+                                        }
+                                    });
+                                });
+                            } else {
+                                runOnUiThread(() -> {
+                                    if (!isFinishing()) {
+                                        progressDialog.dismiss();
+                                        Toast.makeText(BrowserActivity.this, "Error: Could not access page content", Toast.LENGTH_SHORT).show();
+                                    }
+                                    executor.shutdown();
+                                });
+                            }
+                        });
+            });
+        });
+    }
+
+    private String formatHtml(String html) {
+        try {
+            // Remove escaped quotes from the JavaScript string
+            html = html.substring(1, html.length() - 1)
+                    .replace("\\\"", "\"")
+                    .replace("\\n", "\n")
+                    .replace("\\r", "\r")
+                    .replace("\\t", "\t")
+                    .replace("\\u003C", "<")   // Decode \u003C to <
+                    .replace("\\u003E", ">")   // Decode \u003E to >
+                    .replace("\\u0026", "&")   // Decode \u0026 to &
+                    .replace("\\u0027", "'")   // Decode \u0027 to '
+                    .replace("\\u0022", "\""); // Decode \u0022 to "
+
+            // Basic HTML formatting (you can enhance this further)
+            StringBuilder formatted = new StringBuilder();
+            int indent = 0;
+            boolean inTag = false;
+            boolean inScriptOrStyle = false;
+
+            for (int i = 0; i < html.length(); i++) {
+                char c = html.charAt(i);
+
+                if (c == '<') {
+                    inTag = true;
+                    String peek = i + 4 <= html.length() ? html.substring(i, i + 4).toLowerCase() : "";
+                    if (peek.startsWith("</")) {
+                        indent = Math.max(0, indent - 1);
+                    }
+                    formatted.append('\n').append("  ".repeat(indent));
+                }
+
+                formatted.append(c);
+
+                if (c == '>') {
+                    inTag = false;
+                    String tag = formatted.substring(formatted.lastIndexOf("<") + 1, formatted.length() - 1).trim();
+                    if (!tag.startsWith("/") && !tag.endsWith("/") && !tag.startsWith("!--")) {
+                        indent++;
+                    }
+                }
+            }
+
+            return formatted.toString().trim();
+        } catch (Exception e) {
+            Log.e(TAG, "Error formatting HTML", e);
+            return html;  // Return unformatted HTML if formatting fails
+        }
+    }
+
+    private void copyToClipboardInChunks(String content) {
+        if (content == null || content.isEmpty()) {
+            Toast.makeText(this, "No content to copy", Toast.LENGTH_SHORT).show();
+            return;
         }
 
         try {
-            // Use built-in JSON unescaping to properly handle all escaped characters
-            // This is more reliable than manual replacement
-            html = new JSONObject("{\"html\":" + html + "}").getString("html");
-        } catch (org.json.JSONException e) {
-            Log.e(TAG, "Error parsing HTML JSON", e);
+            if (content.length() <= MAX_CLIPBOARD_SIZE) {
+                // Content is small enough, copy directly
+                ClipboardManager clipboard = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
+                ClipData clip = ClipData.newPlainText("HTML Content", content);
+                clipboard.setPrimaryClip(clip);
+                Toast.makeText(this, "Content copied to clipboard", Toast.LENGTH_SHORT).show();
+            } else {
+                // Check for permissions first
+                if (checkSelfPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
+                    isActivelySavingContent = true;
+                    requestPermissions(new String[]{
+                        Manifest.permission.WRITE_EXTERNAL_STORAGE,
+                        Manifest.permission.READ_EXTERNAL_STORAGE
+                    }, PERMISSION_REQUEST_CODE);
+                    return;
+                }
 
-            // Fallback to manual replacement if JSON parsing fails
-            html = html.replace("\\\"", "\"");
-            html = html.replace("\\n", "\n");
-            html = html.replace("\\r", "\r");
-            html = html.replace("\\t", "\t");
-            html = html.replace("\\b", "\b");
-            html = html.replace("\\f", "\f");
-            html = html.replace("\\\\", "\\");
+                // Content is too large, save to Downloads directory
+                File downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS);
+                if (!downloadsDir.exists()) {
+                    downloadsDir.mkdirs();
+                }
 
-            // Additional Unicode escape sequences
-            Pattern unicodePattern = Pattern.compile("\\\\u([0-9A-Fa-f]{4})");
-            Matcher matcher = unicodePattern.matcher(html);
-            StringBuffer sb = new StringBuffer();
-            while (matcher.find()) {
-                String unicodeHex = matcher.group(1);
-                int unicodeInt = Integer.parseInt(unicodeHex, 16);
-                matcher.appendReplacement(sb, Character.toString((char) unicodeInt));
+                String timestamp = new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(new Date());
+                File outputFile = new File(downloadsDir, "webpage_" + timestamp + ".html");
+                
+                try (FileWriter writer = new FileWriter(outputFile)) {
+                    writer.write(content);
+                }
+
+                // Create content URI using FileProvider
+                Uri contentUri = FileProvider.getUriForFile(this, 
+                    getApplicationContext().getPackageName() + ".provider", 
+                    outputFile);
+
+                // Share the file
+                Intent shareIntent = new Intent(Intent.ACTION_SEND);
+                shareIntent.setType("text/html");
+                shareIntent.putExtra(Intent.EXTRA_STREAM, contentUri);
+                shareIntent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+
+                Toast.makeText(this, "Content saved to: " + outputFile.getAbsolutePath(), Toast.LENGTH_LONG).show();
+                startActivity(Intent.createChooser(shareIntent, "Share HTML Content"));
             }
-            matcher.appendTail(sb);
-            html = sb.toString();
+        } catch (Exception e) {
+            Log.e(TAG, "Error handling content", e);
+            Toast.makeText(this, "Error: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+        } finally {
+            isActivelySavingContent = false;
         }
-
-        return html;
     }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (requestCode == PERMISSION_REQUEST_CODE) {
+            if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                Toast.makeText(this, "Storage permission granted", Toast.LENGTH_SHORT).show();
+            } else {
+                // Only show settings dialog if we're actively trying to save content
+                if (isActivelySavingContent) {
+                    new AlertDialog.Builder(this)
+                        .setTitle("Storage Permission Required")
+                        .setMessage("This app needs storage permission to save large web content. " +
+                                  "You can grant this permission in Settings > Apps > WebView Browser > Permissions.")
+                        .setPositiveButton("Open Settings", (dialog, which) -> {
+                            Intent intent = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS);
+                            Uri uri = Uri.fromParts("package", getPackageName(), null);
+                            intent.setData(uri);
+                            startActivity(intent);
+                        })
+                        .setNegativeButton("Later", null)
+                        .show();
+                }
+            }
+        }
+    }
+
+    private boolean isActivelySavingContent = false;
 
     /**
      * Hides the soft keyboard.
@@ -650,7 +1131,7 @@ public class BrowserActivity extends AppCompatActivity {
             public void onFavoriteDeleteClick(Favorite favorite, int position) {
                 // Remove the favorite
                 favoritesManager.removeFavorite(favorite.getUrl());
-                
+
                 // Get the adapter from the RecyclerView
                 if (favoritesDialog != null) {
                     View dialogView = favoritesDialog.findViewById(R.id.favorites_recycler_view);
@@ -662,7 +1143,7 @@ public class BrowserActivity extends AppCompatActivity {
                         }
                     }
                 }
-                
+
                 // Show a toast
                 Toast.makeText(BrowserActivity.this, R.string.removed_from_favorites, Toast.LENGTH_SHORT).show();
 
@@ -698,56 +1179,20 @@ public class BrowserActivity extends AppCompatActivity {
     }
 
     /**
-     * JavaScript interface for communication between WebView and Android code.
+     * Handles form field detection from JavaScript.
+     *
+     * @param fieldType The type of the form field (e.g., "text", "password")
+     * @param fieldName The name attribute of the form field
      */
-    private class WebAppInterface {
-
-        @JavascriptInterface
-        public void onFormField(String fieldType, String fieldName) {
-            Log.d(TAG, "Form field detected: " + fieldType + " - " + fieldName);
-
-            // Check for username/password fields
+    private void onFormField(String fieldType, String fieldName) {
+        if (!isFinishing()) {
             if ("password".equalsIgnoreCase(fieldType)) {
-                // TODO: Implement auto-fill functionality
-            }
-        }
-    }
-
-    /**
-     * WebViewClient to handle page navigation and loading events.
-     */
-    private class CustomWebViewClient extends WebViewClient {
-        @Override
-        public boolean shouldOverrideUrlLoading(WebView view, String url) {
-            loadUrl(url);
-            return true;
-        }
-
-        @Override
-        public void onPageStarted(WebView view, String url, Bitmap favicon) {
-            super.onPageStarted(view, url, favicon);
-            // Update UI for page loading
-            BrowserActivity.this.updateUrlBar(url);
-            BrowserActivity.this.toggleLoadingState(true);
-            BrowserActivity.this.stopButton.setVisibility(View.VISIBLE);
-            BrowserActivity.this.refreshButton.setVisibility(View.GONE);
-        }
-
-        @Override
-        public void onPageFinished(WebView view, String url) {
-            super.onPageFinished(view, url);
-            // Update UI for page finished
-            BrowserActivity.this.updateUrlBar(url);
-            BrowserActivity.this.toggleLoadingState(false);
-            BrowserActivity.this.stopButton.setVisibility(View.GONE);
-            BrowserActivity.this.refreshButton.setVisibility(View.VISIBLE);
-
-            // Update favorites button
-            updateFavoriteButton();
-
-            // Add page to history
-            if (url != null && !url.equals("about:blank")) {
-                HistoryManager.getInstance(BrowserActivity.this).addEntry(url, webView.getTitle(), null);
+                // Check for saved credentials
+                List<Credentials> savedCredentials = credentialsManager.getCredentialsForDomain(webView.getUrl());
+                if (!savedCredentials.isEmpty()) {
+                    // Show saved credentials dialog
+                    showCredentialsDialog();
+                }
             }
         }
     }
@@ -831,5 +1276,55 @@ public class BrowserActivity extends AppCompatActivity {
             // Update navigation buttons when loading is complete
             updateNavigationButtons();
         }
+    }
+
+    @Override
+    protected void onDestroy() {
+        // Clean up handlers and runnables
+        if (timeoutHandler != null && timeoutRunnable != null) {
+            timeoutHandler.removeCallbacks(timeoutRunnable);
+        }
+
+        // Clean up WebView
+        if (webView != null) {
+            webView.stopLoading();
+            webView.clearCache(true);
+            webView.clearHistory();
+            webView.destroy();
+        }
+
+        super.onDestroy();
+    }
+
+    private void showWelcomeDialog() {
+        View dialogView = getLayoutInflater().inflate(R.layout.dialog_welcome, null);
+        CheckBox dontShowAgain = dialogView.findViewById(R.id.checkbox_dont_show);
+        TextView messageView = dialogView.findViewById(R.id.welcome_message);
+
+        String welcomeMessage = 
+            "Welcome to WebView Browser!\n\n" +
+            "This app includes a special feature for handling large web content:\n\n" +
+            "1. Small content is copied directly to clipboard\n" +
+            "2. Large content is saved to your Downloads folder\n\n" +
+            "To access saved files on your computer:\n\n" +
+            "Using ADB:\n" +
+            "adb pull /storage/emulated/0/Download/webpage_*.html ~/Downloads/\n\n" +
+            "Or mount a directory:\n" +
+            "adb push ~/Downloads/ /storage/emulated/0/Download/\n\n" +
+            "Files are saved with timestamps for easy identification.";
+
+        messageView.setText(welcomeMessage);
+
+        new AlertDialog.Builder(this)
+            .setTitle("Welcome")
+            .setView(dialogView)
+            .setPositiveButton("Got it!", (dialog, which) -> {
+                if (dontShowAgain.isChecked()) {
+                    SharedPreferences.Editor editor = getPreferences(MODE_PRIVATE).edit();
+                    editor.putBoolean(PREF_SHOW_WELCOME, false);
+                    editor.apply();
+                }
+            })
+            .show();
     }
 }
