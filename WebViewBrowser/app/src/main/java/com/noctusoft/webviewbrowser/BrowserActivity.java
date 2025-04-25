@@ -53,6 +53,8 @@ import androidx.appcompat.widget.Toolbar;
 import androidx.core.content.FileProvider;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
+import androidx.viewpager.widget.ViewPager;
+import com.google.android.material.tabs.TabLayout;
 
 import com.noctusoft.webviewbrowser.model.BrowsingSession;
 import com.noctusoft.webviewbrowser.model.Credentials;
@@ -403,12 +405,14 @@ public class BrowserActivity extends AppCompatActivity {
             
             // Update UI on main thread
             new Handler(Looper.getMainLooper()).post(() -> {
-                consoleLogEntries.add(entry);
-                if (consoleLogAdapter != null) {
-                    consoleLogAdapter.notifyItemInserted(consoleLogEntries.size() - 1);
-                    // Scroll to bottom
-                    if (consoleLogRecyclerView != null) {
-                        consoleLogRecyclerView.scrollToPosition(consoleLogEntries.size() - 1);
+                if (consoleLogEntries != null) {
+                    consoleLogEntries.add(entry);
+                    if (consoleLogAdapter != null) {
+                        consoleLogAdapter.notifyItemInserted(consoleLogEntries.size() - 1);
+                        // Scroll to bottom
+                        if (consoleLogRecyclerView != null) {
+                            consoleLogRecyclerView.scrollToPosition(consoleLogEntries.size() - 1);
+                        }
                     }
                 }
             });
@@ -421,6 +425,9 @@ public class BrowserActivity extends AppCompatActivity {
                 if (!isFinishing()) {
                     pageLoaded = true;
                     showLoading(false);
+                    
+                    // Make sure console logger is injected
+                    injectConsoleLogger();
                     
                     if (timeoutHandler != null && timeoutRunnable != null) {
                         timeoutHandler.removeCallbacks(timeoutRunnable);
@@ -557,34 +564,13 @@ public class BrowserActivity extends AppCompatActivity {
                 return;
             }
             
-            // Update the source code display
-            refreshSourceCode();
-            
             // Make dev tools visible
             devToolsView.setVisibility(View.VISIBLE);
             isDevToolsVisible = true;
             devToolsButton.setImageResource(android.R.drawable.ic_menu_close_clear_cancel);
             
-            // Show console view by default if console view is ready
-            if (consoleLogRecyclerView != null) {
-                toggleConsoleView();
-                
-                // Add a test log to verify console functionality
-                new Handler(Looper.getMainLooper()).postDelayed(() -> {
-                    if (webView != null) {
-                        webView.evaluateJavascript(
-                            "console.log('Developer tools opened');" +
-                            "console.error('Test error message');" +
-                            "console.warn('Test warning message');" +
-                            "console.info('Test info message');", 
-                            null
-                        );
-                    }
-                }, 300);
-            } else {
-                Log.e(TAG, "Console RecyclerView was not initialized properly");
-                Toast.makeText(this, "Error initializing console view", Toast.LENGTH_SHORT).show();
-            }
+            // Make sure JavaScript console logging is injected
+            injectConsoleLogger();
         }
     }
     
@@ -605,34 +591,30 @@ public class BrowserActivity extends AppCompatActivity {
                     LinearLayout.LayoutParams.MATCH_PARENT,
                     LinearLayout.LayoutParams.MATCH_PARENT));
 
-            // Add tab buttons for Source and Console
-            LinearLayout tabLayout = new LinearLayout(this);
-            tabLayout.setOrientation(LinearLayout.HORIZONTAL);
+            // Create TabLayout for Source/Console tabs
+            TabLayout tabLayout = new TabLayout(this);
+            tabLayout.setTabGravity(TabLayout.GRAVITY_FILL);
+            tabLayout.setTabMode(TabLayout.MODE_FIXED);
+            tabLayout.setBackgroundColor(Color.LTGRAY);
             tabLayout.setLayoutParams(new LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT,
                     LinearLayout.LayoutParams.WRAP_CONTENT));
-
-            Button sourceTabButton = new Button(this);
-            sourceTabButton.setText("Source");
-            sourceTabButton.setLayoutParams(new LinearLayout.LayoutParams(
-                    0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
-            sourceTabButton.setOnClickListener(v -> showSourceView());
-
-            Button consoleTabButton = new Button(this);
-            consoleTabButton.setText("Console");
-            consoleTabButton.setLayoutParams(new LinearLayout.LayoutParams(
-                    0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
-            consoleTabButton.setOnClickListener(v -> toggleConsoleView());
-
-            tabLayout.addView(sourceTabButton);
-            tabLayout.addView(consoleTabButton);
+            
+            // Add to main layout
             devToolsView.addView(tabLayout);
+            
+            // Create container for tab content
+            FrameLayout contentContainer = new FrameLayout(this);
+            contentContainer.setLayoutParams(new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.MATCH_PARENT));
+            devToolsView.addView(contentContainer);
 
             // Create source code view
             ScrollView sourceScrollView = new ScrollView(this);
-            sourceScrollView.setLayoutParams(new LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT,
-                    LinearLayout.LayoutParams.MATCH_PARENT));
+            sourceScrollView.setLayoutParams(new FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.MATCH_PARENT,
+                    FrameLayout.LayoutParams.MATCH_PARENT));
 
             sourceCodeText = new TextView(this);
             sourceCodeText.setTypeface(Typeface.MONOSPACE);
@@ -643,13 +625,14 @@ public class BrowserActivity extends AppCompatActivity {
                     ViewGroup.LayoutParams.WRAP_CONTENT));
 
             sourceScrollView.addView(sourceCodeText);
-            devToolsView.addView(sourceScrollView);
+            contentContainer.addView(sourceScrollView);
 
             // Create console log view
             consoleLogRecyclerView = new RecyclerView(this);
-            consoleLogRecyclerView.setLayoutParams(new LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT,
-                    LinearLayout.LayoutParams.MATCH_PARENT));
+            consoleLogRecyclerView.setLayoutParams(new FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.MATCH_PARENT,
+                    FrameLayout.LayoutParams.MATCH_PARENT));
+            consoleLogRecyclerView.setBackgroundColor(Color.WHITE);
             consoleLogRecyclerView.setLayoutManager(new LinearLayoutManager(this));
             
             // Make sure consoleLogEntries is initialized
@@ -661,98 +644,74 @@ public class BrowserActivity extends AppCompatActivity {
             consoleLogAdapter = new ConsoleLogAdapter(consoleLogEntries);
             consoleLogRecyclerView.setAdapter(consoleLogAdapter);
             
-            // Add the RecyclerView to the main layout and hide it initially
-            devToolsView.addView(consoleLogRecyclerView);
+            // Add the RecyclerView to the content container
+            contentContainer.addView(consoleLogRecyclerView);
+            
+            // Hide both views initially
+            sourceScrollView.setVisibility(View.GONE);
             consoleLogRecyclerView.setVisibility(View.GONE);
+            
+            // Create tabs
+            TabLayout.Tab sourceTab = tabLayout.newTab().setText("Source");
+            TabLayout.Tab consoleTab = tabLayout.newTab().setText("Console");
+            
+            tabLayout.addTab(sourceTab);
+            tabLayout.addTab(consoleTab);
+            
+            // Set up tab selection listener
+            tabLayout.addOnTabSelectedListener(new TabLayout.OnTabSelectedListener() {
+                @Override
+                public void onTabSelected(TabLayout.Tab tab) {
+                    if (tab.getPosition() == 0) {
+                        // Source tab selected
+                        sourceScrollView.setVisibility(View.VISIBLE);
+                        consoleLogRecyclerView.setVisibility(View.GONE);
+                        refreshSourceCode();
+                    } else {
+                        // Console tab selected
+                        sourceScrollView.setVisibility(View.GONE);
+                        consoleLogRecyclerView.setVisibility(View.VISIBLE);
+                        
+                        // Add a test log entry
+                        new Handler(Looper.getMainLooper()).postDelayed(() -> {
+                            webView.evaluateJavascript(
+                                "console.log('Console tab activated');" +
+                                "console.info('Log entries should appear here');", 
+                                null
+                            );
+                        }, 100);
+                    }
+                }
+
+                @Override
+                public void onTabUnselected(TabLayout.Tab tab) {
+                    // Not needed
+                }
+
+                @Override
+                public void onTabReselected(TabLayout.Tab tab) {
+                    // Not needed
+                }
+            });
 
             // Add developer tools to the layout
             FrameLayout webViewContainer = findViewById(R.id.web_view_container);
             if (webViewContainer != null && webViewContainer.getParent() != null) {
                 ((ViewGroup) webViewContainer.getParent()).addView(devToolsView);
                 devToolsView.setVisibility(View.GONE);
-                
-                // Inject the console logger after setting up the views
-                //injectConsoleLogger();
-                
                 Log.d(TAG, "Developer tools view setup completed successfully");
             } else {
                 Log.e(TAG, "Web view container or its parent is null");
                 Toast.makeText(this, "Error initializing developer tools", Toast.LENGTH_SHORT).show();
             }
+            
+            // Select source tab by default
+            sourceTab.select();
+            
         } catch (Exception e) {
             Log.e(TAG, "Error setting up developer tools view: " + e.getMessage());
             e.printStackTrace();
             Toast.makeText(this, "Error initializing developer tools: " + e.getMessage(), Toast.LENGTH_SHORT).show();
-        }
-    }
-
-    // Switch to source code view
-    private void showSourceView() {
-        if (devToolsView != null) {
-            ((View)sourceCodeText.getParent().getParent()).setVisibility(View.VISIBLE);
-            consoleLogRecyclerView.setVisibility(View.GONE);
-            isConsoleVisible = false;
-            refreshSourceCode();
-        }
-    }
-
-    // Toggle console view visibility
-    private void toggleConsoleView() {
-        if (devToolsView != null) {
-            if (isConsoleVisible) {
-                // Check if sourceCodeText is initialized and has valid parents
-                if (sourceCodeText != null && sourceCodeText.getParent() != null && 
-                    sourceCodeText.getParent().getParent() != null) {
-                    ((View)sourceCodeText.getParent().getParent()).setVisibility(View.VISIBLE);
-                }
-                
-                // Check if consoleLogRecyclerView is initialized
-                if (consoleLogRecyclerView != null) {
-                    consoleLogRecyclerView.setVisibility(View.GONE);
-                }
-                isConsoleVisible = false;
-            } else {
-                // Check if sourceCodeText is initialized and has valid parents
-                if (sourceCodeText != null && sourceCodeText.getParent() != null && 
-                    sourceCodeText.getParent().getParent() != null) {
-                    ((View)sourceCodeText.getParent().getParent()).setVisibility(View.GONE);
-                }
-                
-                // Initialize RecyclerView if needed
-                if (consoleLogRecyclerView == null) {
-                    // This means setupDevToolsView didn't finish properly - recreate dev tools
-                    Log.d(TAG, "RecyclerView was null, recreating developer tools view");
-                    if (devToolsView.getParent() != null) {
-                        ((ViewGroup)devToolsView.getParent()).removeView(devToolsView);
-                    }
-                    devToolsView = null;
-                    setupDevToolsView();
-                }
-                
-                // Check if consoleLogRecyclerView is initialized
-                if (consoleLogRecyclerView != null) {
-                    consoleLogRecyclerView.setVisibility(View.VISIBLE);
-                } else {
-                    Log.e(TAG, "Console RecyclerView is still null after recreation attempt");
-                    Toast.makeText(BrowserActivity.this, "Error displaying console", Toast.LENGTH_SHORT).show();
-                    return;
-                }
-                
-                isConsoleVisible = true;
-                
-                // Add a test message if adapter is initialized
-                ConsoleLogEntry entry = new ConsoleLogEntry("info", "Console view activated", new Date());
-                consoleLogEntries.add(entry);
-                
-                if (consoleLogAdapter != null) {
-                    consoleLogAdapter.notifyItemInserted(consoleLogEntries.size() - 1);
-                    consoleLogRecyclerView.scrollToPosition(consoleLogEntries.size() - 1);
-                } else {
-                    Log.d(TAG, "Console adapter was null, creating new adapter");
-                    consoleLogAdapter = new ConsoleLogAdapter(consoleLogEntries);
-                    consoleLogRecyclerView.setAdapter(consoleLogAdapter);
-                }
-            }
         }
     }
 
@@ -1662,9 +1621,12 @@ public class BrowserActivity extends AppCompatActivity {
         
         webView.evaluateJavascript("javascript:" + testScript, null);
         
-        // Switch to console view if not already showing
-        if (!isConsoleVisible) {
-            toggleConsoleView();
+        // Show dev tools with console tab if not already visible
+        if (!isDevToolsVisible) {
+            showDevTools(DEV_TOOLS_CONSOLE);
+        } else {
+            // If already visible, just select the console tab
+            showDevTools(DEV_TOOLS_CONSOLE);
         }
     }
 
@@ -1678,23 +1640,21 @@ public class BrowserActivity extends AppCompatActivity {
             toggleDevTools();
         }
         
-        // Switch to the appropriate view based on mode
-        if (mode == DEV_TOOLS_SOURCE) {
-            showSourceView();
-        } else if (mode == DEV_TOOLS_CONSOLE) {
-            toggleConsoleView();
-            
-            // Add some test logs
-            new Handler(Looper.getMainLooper()).postDelayed(() -> {
-                if (webView != null) {
-                    webView.evaluateJavascript(
-                        "console.log('Console view activated');" +
-                        "console.error('Test error message');" +
-                        "console.warn('Test warning message');", 
-                        null
-                    );
+        // Get the TabLayout from devToolsView
+        if (devToolsView != null) {
+            for (int i = 0; i < devToolsView.getChildCount(); i++) {
+                View child = devToolsView.getChildAt(i);
+                if (child instanceof TabLayout) {
+                    TabLayout tabLayout = (TabLayout) child;
+                    // Select the appropriate tab based on mode
+                    if (mode == DEV_TOOLS_SOURCE) {
+                        tabLayout.getTabAt(0).select(); // Source tab
+                    } else if (mode == DEV_TOOLS_CONSOLE) {
+                        tabLayout.getTabAt(1).select(); // Console tab
+                    }
+                    break;
                 }
-            }, 300);
+            }
         }
     }
 }
