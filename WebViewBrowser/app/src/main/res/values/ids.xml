@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- IDs for Developer Tools -->
+    <item name="radio_source" type="id" />
+    <item name="radio_console" type="id" />
+</resources>
