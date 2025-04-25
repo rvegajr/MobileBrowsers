@@ -116,7 +116,7 @@ public class BrowserActivity extends AppCompatActivity {
     private TextView sourceCodeText;
     private RecyclerView consoleLogRecyclerView;
     private ConsoleLogAdapter consoleLogAdapter;
-    private List<ConsoleLogEntry> consoleLogEntries = new ArrayList<>();
+    private List<ConsoleLogEntry> consoleLogEntries;
     private boolean isConsoleVisible = false;
     private Button consoleToggleButton;
 
@@ -154,6 +154,9 @@ public class BrowserActivity extends AppCompatActivity {
         historyManager = HistoryManager.getInstance(this);
         variablesManager = VariablesManager.getInstance(this);
         favoritesManager = FavoritesManager.getInstance(this);
+        
+        // Initialize console logs collection
+        consoleLogEntries = new ArrayList<>();
 
         // Set up UI components
         setupUIComponents();
@@ -161,8 +164,7 @@ public class BrowserActivity extends AppCompatActivity {
         setupListeners();
         setupElementSelector();
 
-        // Inject console logger after WebView initialization
-        injectConsoleLogger();
+        // Note: Console logger is now injected in onPageFinished to ensure proper timing
 
         // Check permissions once at startup
         if (checkSelfPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
@@ -229,6 +231,9 @@ public class BrowserActivity extends AppCompatActivity {
 
         // Add JavaScript interface for communication between WebView and app
         webView.addJavascriptInterface(new WebAppInterface(), "Android");
+        
+        // Log that the interface was added
+        Log.d(TAG, "Added JavaScript interface 'Android' to WebView");
 
         // Set WebViewClient to handle page navigation
         webView.setWebViewClient(new CustomWebViewClient());
@@ -570,7 +575,8 @@ public class BrowserActivity extends AppCompatActivity {
                         webView.evaluateJavascript(
                             "console.log('Developer tools opened');" +
                             "console.error('Test error message');" +
-                            "console.warn('Test warning message');", 
+                            "console.warn('Test warning message');" +
+                            "console.info('Test info message');", 
                             null
                         );
                     }
@@ -666,7 +672,7 @@ public class BrowserActivity extends AppCompatActivity {
                 devToolsView.setVisibility(View.GONE);
                 
                 // Inject the console logger after setting up the views
-                injectConsoleLogger();
+                //injectConsoleLogger();
                 
                 Log.d(TAG, "Developer tools view setup completed successfully");
             } else {
@@ -757,76 +763,93 @@ public class BrowserActivity extends AppCompatActivity {
             return;
         }
         
+        Log.d(TAG, "Injecting console logger JavaScript");
+        
         final String consoleScript = 
             "(function() {" +
-            "   if (window.consoleLoggerInjected) return;" +
-            "   console.originalLog = console.log;" +
-            "   console.originalError = console.error;" +
-            "   console.originalWarn = console.warn;" +
-            "   console.originalInfo = console.info;" +
-            "   console.originalDebug = console.debug;" +
+            "   try {" +
+            "      if (window.consoleLoggerInjected) return;" +
+            "      if (typeof Android === 'undefined' || typeof Android.consoleLog !== 'function') {" +
+            "          console.log('Android interface not found, cannot initialize console logger');" +
+            "          return false;" +
+            "      }" +
+            "      console.originalLog = console.log;" +
+            "      console.originalError = console.error;" +
+            "      console.originalWarn = console.warn;" +
+            "      console.originalInfo = console.info;" +
+            "      console.originalDebug = console.debug;" +
             
-            "   console.log = function() {" +
-            "       var args = Array.prototype.slice.call(arguments);" +
-            "       console.originalLog.apply(console, args);" +
-            "       var message = args.map(function(arg) {" +
-            "           return (typeof arg === 'object') ? JSON.stringify(arg) : String(arg);" + 
-            "       }).join(' ');" +
-            "       Android.consoleLog('log', message);" +
-            "   };" +
+            "      console.log = function() {" +
+            "          var args = Array.prototype.slice.call(arguments);" +
+            "          console.originalLog.apply(console, args);" +
+            "          var message = args.map(function(arg) {" +
+            "              return (typeof arg === 'object') ? JSON.stringify(arg) : String(arg);" + 
+            "          }).join(' ');" +
+            "          Android.consoleLog('log', message);" +
+            "      };" +
             
-            "   console.error = function() {" +
-            "       var args = Array.prototype.slice.call(arguments);" +
-            "       console.originalError.apply(console, args);" +
-            "       var message = args.map(function(arg) {" +
-            "           return (typeof arg === 'object') ? JSON.stringify(arg) : String(arg);" + 
-            "       }).join(' ');" +
-            "       Android.consoleLog('error', message);" +
-            "   };" +
+            "      console.error = function() {" +
+            "          var args = Array.prototype.slice.call(arguments);" +
+            "          console.originalError.apply(console, args);" +
+            "          var message = args.map(function(arg) {" +
+            "              return (typeof arg === 'object') ? JSON.stringify(arg) : String(arg);" + 
+            "          }).join(' ');" +
+            "          Android.consoleLog('error', message);" +
+            "      };" +
             
-            "   console.warn = function() {" +
-            "       var args = Array.prototype.slice.call(arguments);" +
-            "       console.originalWarn.apply(console, args);" +
-            "       var message = args.map(function(arg) {" +
-            "           return (typeof arg === 'object') ? JSON.stringify(arg) : String(arg);" + 
-            "       }).join(' ');" +
-            "       Android.consoleLog('warn', message);" +
-            "   };" +
+            "      console.warn = function() {" +
+            "          var args = Array.prototype.slice.call(arguments);" +
+            "          console.originalWarn.apply(console, args);" +
+            "          var message = args.map(function(arg) {" +
+            "              return (typeof arg === 'object') ? JSON.stringify(arg) : String(arg);" + 
+            "          }).join(' ');" +
+            "          Android.consoleLog('warn', message);" +
+            "      };" +
             
-            "   console.info = function() {" +
-            "       var args = Array.prototype.slice.call(arguments);" +
-            "       console.originalInfo.apply(console, args);" +
-            "       var message = args.map(function(arg) {" +
-            "           return (typeof arg === 'object') ? JSON.stringify(arg) : String(arg);" + 
-            "       }).join(' ');" +
-            "       Android.consoleLog('info', message);" +
-            "   };" +
+            "      console.info = function() {" +
+            "          var args = Array.prototype.slice.call(arguments);" +
+            "          console.originalInfo.apply(console, args);" +
+            "          var message = args.map(function(arg) {" +
+            "              return (typeof arg === 'object') ? JSON.stringify(arg) : String(arg);" + 
+            "          }).join(' ');" +
+            "          Android.consoleLog('info', message);" +
+            "      };" +
             
-            "   console.debug = function() {" +
-            "       var args = Array.prototype.slice.call(arguments);" +
-            "       console.originalDebug.apply(console, args);" +
-            "       var message = args.map(function(arg) {" +
-            "           return (typeof arg === 'object') ? JSON.stringify(arg) : String(arg);" + 
-            "       }).join(' ');" +
-            "       Android.consoleLog('debug', message);" +
-            "   };" +
+            "      console.debug = function() {" +
+            "          var args = Array.prototype.slice.call(arguments);" +
+            "          console.originalDebug.apply(console, args);" +
+            "          var message = args.map(function(arg) {" +
+            "              return (typeof arg === 'object') ? JSON.stringify(arg) : String(arg);" + 
+            "          }).join(' ');" +
+            "          Android.consoleLog('debug', message);" +
+            "      };" +
             
-            "   window.consoleLoggerInjected = true;" +
-            "   console.log('Console logger initialized');" +
+            "      window.consoleLoggerInjected = true;" +
+            "      console.log('Console logger initialized');" +
+            "      return true;" +
+            "   } catch(e) {" +
+            "      console.originalLog('Error initializing console logger: ' + e);" +
+            "      return false;" +
+            "   }" +
             "})();";
         
-        webView.evaluateJavascript(consoleScript, null);
-        
-        // Generate test logs for verification
-        new Handler(Looper.getMainLooper()).postDelayed(() -> {
-            webView.evaluateJavascript(
-                "console.log('Test log message');" +
-                "console.error('Test error message');" +
-                "console.warn('Test warning message');" +
-                "console.info('Test info message');", 
-                null
-            );
-        }, 500);
+        webView.evaluateJavascript(consoleScript, result -> {
+            Log.d(TAG, "Console logger initialized: " + result);
+            if (!"true".equals(result)) {
+                Log.e(TAG, "Failed to initialize console logger");
+            } else {
+                // Generate test logs for verification
+                new Handler(Looper.getMainLooper()).postDelayed(() -> {
+                    webView.evaluateJavascript(
+                        "console.log('Test log message');" +
+                        "console.error('Test error message');" +
+                        "console.warn('Test warning message');" +
+                        "console.info('Test info message');", 
+                        null
+                    );
+                }, 500);
+            }
+        });
     }
 
     // Clear console logs
@@ -1488,13 +1511,22 @@ public class BrowserActivity extends AppCompatActivity {
                             "       };" +
                             "       checkReadyState();" +
                             "       return document.readyState === 'complete';" +
-                            "})();",
+                            "} catch(e) { " +
+                            "   try {" +
+                            "       return document.getElementsByTagName('html')[0].outerHTML;" +
+                            "   } catch(e2) {" +
+                            "       return document.body.innerHTML;" +
+                            "   }" +
+                            "} })();",
                     value -> {
                         if (Boolean.parseBoolean(value)) {
                             onPageFullyLoaded();
                         }
                     }
             );
+            
+            // Inject the console logger after the page is loaded - this ensures the JS interface is ready
+            injectConsoleLogger();
 
             // Update UI elements
             updateNavigationButtons();
