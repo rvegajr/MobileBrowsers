@@ -64,7 +64,7 @@ This toolset bridges that gap by providing dedicated browser applications with b
 
 1. **Open Developer Tools**: Tap the menu button (three dots) and select "Developer Tools"
 2. **View Source**: The HTML source of the current page will be displayed in a scrollable view
-3. **Copy Source**: Tap the "Copy All" button to copy the entire HTML source to your clipboard
+3. **Copy Source**: Tap the "Copy" button to copy the entire HTML source to your clipboard
 4. **Analyze**: Paste the source into your preferred editor for analysis or sharing
 
 ### Using Console Logs
@@ -136,7 +136,7 @@ We're continuously improving MobileBrowsers to make it even more useful for MAUI
    - Set breakpoints in JavaScript code 
    - Inspect variables and call stack
    - Step through code execution
-   - View and analyze console logs (Implemented 2025-04-25)
+   - View and analyze console logs (Implemented 2025-04-26)
 
 4. **Cross-Browser Testing**
    - Side-by-side comparison of rendering between WebKit and WebView
@@ -228,6 +228,14 @@ This script:
 - Automatically bypasses code signing for development builds
 
 ## Recent Updates
+
+### April 26, 2025
+- Fixed console logging initialization and display issues in Android
+- Enhanced JavaScript interface between WebView and native app
+- Improved error handling and thread safety in console log processing
+- Added automatic source code loading when DevTools is first opened
+- Synchronized console logging implementations between iOS and Android
+- Enhanced console log entry styling with better timestamps and colors
 
 ### April 25, 2025
 - Added JavaScript console log viewing functionality to both Android and iOS browsers

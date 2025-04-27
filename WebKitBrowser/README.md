@@ -18,8 +18,14 @@ A powerful iOS web browser application with built-in developer tools and credent
 * Built-in web inspector
 * DOM element search functionality
 * Live HTML source code viewer
-* JavaScript console output
+* Enhanced JavaScript console with:
+  * Color-coded output by log type (error, warning, info, debug)
+  * Timestamped entries
+  * Object and array formatting
+  * Copy and clear functionality
+  * Test log generation
 * Split-view developer tools interface
+* Tab-based design for switching between source and console views
 
 ### Credential Management
 
@@ -45,6 +51,13 @@ A powerful iOS web browser application with built-in developer tools and credent
 
 ## Recent Updates
 
+### April 26, 2025
+* Synchronized console logging implementation between iOS and Android
+* Improved console log styling and timestamps format
+* Enhanced user interface for better developer experience
+* Added consistent tab-based interface matching Android implementation
+
+### April 25, 2025
 * Fixed iOS 14.0 compatibility issues in HistoryListViewController with cell configuration API
 * Added proper availability checking for iOS 14.0 APIs
 * Restored CocoaPods configuration with explicit Podfile
@@ -66,6 +79,8 @@ WebKitBrowser/
 ├── Sources/                          # Source code files
 │   ├── BrowserViewController.swift   # Main browser UI and logic
 │   ├── CredentialsManager.swift      # Keychain credential management
+│   ├── DevToolsViewController.swift  # Developer tools implementation
+│   ├── ConsoleLogManager.swift       # Console log handling and display
 │   ├── AppDelegate.swift            # Application lifecycle
 │   ├── SceneDelegate.swift          # UI scene management
 │   └── Info.plist                   # App configuration
@@ -93,8 +108,8 @@ WebKitBrowser/
 1. Clone the repository:
 
 ```bash
-git clone https://github.com/noctusoft/WebKitBrowser.git
-cd WebKitBrowser
+git clone https://github.com/noctusoft/MobileBrowsers.git
+cd MobileBrowsers/WebKitBrowser
 ```
 
 2. Run the setup script:
@@ -197,85 +212,12 @@ fastlane deploy_testflight
 fastlane deploy_appstore
 ```
 
-## Available Fastlane Lanes
+## Feature Comparison with Android WebViewBrowser
 
-* `fastlane test` - Run all tests
-* `fastlane build_dev` - Build development version
-* `fastlane build_release` - Build release version
-* `fastlane deploy_testflight` - Deploy to TestFlight
-* `fastlane deploy_appstore` - Deploy to App Store
-
-## AI Development
-
-The project includes an `.ai-index` file that provides:
-* Code generation templates
-* Testing strategies
-* Security considerations
-* Performance monitoring guidelines
-* Project commands
-* Future enhancement plans
-
-Always refer to `.ai-index` before making changes to ensure consistency with project standards.
-
-## Code Style
-
-The project uses SwiftLint with custom rules defined in `.swiftlint.yml`:
-* Line length limits
-* Function complexity rules
-* Naming conventions
-* Custom logging rules
-
-## Contributing
-
-1. Fork the repository
-
-2. Create a feature branch:
-
-```bash
-git checkout -b feature/your-feature-name
-```
-
-3. Make your changes
-
-4. Ensure tests pass:
-
-```bash
-fastlane test
-```
-
-5. Run SwiftLint:
-
-```bash
-swiftlint
-```
-
-6. Submit a pull request
-
-## Troubleshooting
-
-### Common Issues
-
-1. **Project won't generate**
-   * Verify XcodeGen is installed
-   * Check project.yml syntax
-   * Run with verbose logging: `xcodegen generate --verbose`
-
-2. **Tests fail to run**
-   * Check simulator availability
-   * Verify test target configuration
-   * Run tests with `--verbose` flag
-
-3. **SwiftLint errors**
-   * Update SwiftLint to latest version
-   * Check .swiftlint.yml configuration
-   * Run auto-correct: `swiftlint --fix`
-
-## License
-
-This project is licensed under the MIT License - see the LICENSE file for details.
-
-## Contact
-
-* Website: [https://noctusoft.com](https://noctusoft.com)
-* Email: [support@noctusoft.com](mailto:support@noctusoft.com)
-* Twitter: [@noctusoftdev](https://twitter.com/noctusoftdev)
+This iOS implementation is feature-compatible with the Android WebViewBrowser:
+- Both use the native web rendering engine (WebKit on iOS, WebView on Android)
+- Both implement the same credential management approach (KeyChain on iOS, KeyStore on Android)
+- Both provide developer tools with HTML source inspection and console logging
+- Both maintain browsing history with search capabilities
+- Both offer form variable management
+- Both feature similar UIs with tab-based DevTools panels

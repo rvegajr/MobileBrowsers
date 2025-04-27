@@ -14,11 +14,18 @@ A powerful Android web browser application with built-in developer tools and cre
 
 ### Developer Tools
 
-* HTML source code viewer
+* HTML source code viewer with syntax highlighting
 * DOM inspection capabilities
 * JavaScript interaction
 * Split-view developer tools interface
-* JavaScript console log viewer with color-coded output
+* Enhanced JavaScript console log viewer with:
+  * Color-coded output (error, warning, info, debug)
+  * Timestamped entries
+  * Object and array formatting
+  * Copy and clear functionality
+  * Test log generation
+* Source code display with proper formatting
+* Tab-based interface for switching between source and console views
 
 ### Credential Management
 
@@ -47,6 +54,22 @@ A powerful Android web browser application with built-in developer tools and cre
 * Room Database for history storage
 * Android KeyStore for secure credential storage
 * Material Design Components
+* JSoup for HTML formatting
+
+## Recent Updates
+
+### April 26, 2025
+* Fixed console logging initialization and display issues
+* Enhanced the JavaScript interface between WebView and native app
+* Improved error handling and thread safety in console log processing
+* Added automatic source code loading when DevTools is first opened
+* Enhanced console log entry styling with better timestamps and colors
+
+### April 25, 2025
+* Added JavaScript console log viewing functionality
+* Implemented color-coded log entries with timestamp display
+* Added toolbar action buttons (Clear, Copy, Test Log)
+* Enhanced source code display with proper formatting
 
 ## Project Structure
 
@@ -60,6 +83,7 @@ WebViewBrowser/
 │   │   │   │   ├── CredentialsManager.java        # Secure credential storage
 │   │   │   │   ├── HistoryManager.java            # Browsing history management
 │   │   │   │   ├── VariablesManager.java          # Variable management for forms
+│   │   │   │   ├── utils/                         # Utility classes
 │   │   │   │   ├── model/                         # Data models
 │   │   │   │   └── ui/                            # UI components
 │   │   │   ├── res/                               # Resources
@@ -115,6 +139,7 @@ The Android WebView is configured with:
 - DOM storage enabled
 - Zoom controls
 - Safe browsing
+- JavaScript interface for console logging
 - Appropriate permissions for internet access
 
 ### Security Considerations
@@ -129,9 +154,10 @@ The Android WebView is configured with:
 This Android implementation mirrors the iOS WebKitBrowser with equivalent functionality:
 - Both use the native web rendering engine (WebKit on iOS, WebView on Android)
 - Both implement the same credential management approach (KeyChain on iOS, KeyStore on Android)
-- Both provide developer tools and HTML source inspection
+- Both provide developer tools with HTML source inspection and console logging
 - Both maintain browsing history with search capabilities
 - Both offer form variable management
+- Both feature similar UIs with tab-based DevTools panels
 
 ## AI Development
 
