@@ -1,0 +1,140 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/dev_tools_container"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:background="#FFFFFF"
+    android:orientation="vertical">
+
+    <!-- Toolbar -->
+    <androidx.appcompat.widget.Toolbar
+        android:id="@+id/dev_tools_toolbar"
+        android:layout_width="match_parent"
+        android:layout_height="?attr/actionBarSize"
+        android:background="#444444"
+        app:title="Developer Tools"
+        app:titleTextColor="#FFFFFF">
+        
+        <!-- Toolbar Action Buttons -->
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="match_parent"
+            android:layout_gravity="end"
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
+            
+            <Button
+                android:id="@+id/btn_clear_logs"
+                android:layout_width="wrap_content"
+                android:layout_height="36dp"
+                android:background="?attr/selectableItemBackground"
+                android:text="Clear"
+                android:textColor="#FFFFFF"
+                android:minWidth="0dp"
+                android:paddingStart="12dp"
+                android:paddingEnd="12dp" />
+                
+            <Button
+                android:id="@+id/btn_copy_content"
+                android:layout_width="wrap_content"
+                android:layout_height="36dp"
+                android:background="?attr/selectableItemBackground"
+                android:text="Copy"
+                android:textColor="#FFFFFF"
+                android:minWidth="0dp"
+                android:paddingStart="12dp"
+                android:paddingEnd="12dp" />
+                
+            <Button
+                android:id="@+id/btn_test_log"
+                android:layout_width="wrap_content"
+                android:layout_height="36dp"
+                android:background="?attr/selectableItemBackground"
+                android:text="Test Log"
+                android:textColor="#FFFFFF"
+                android:minWidth="0dp"
+                android:paddingStart="12dp"
+                android:paddingEnd="12dp" />
+        </LinearLayout>
+    </androidx.appcompat.widget.Toolbar>
+
+    <!-- Tab Layout -->
+    <RadioGroup
+        android:id="@+id/dev_tools_tabs"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:background="#DDDDDD"
+        android:padding="2dp">
+
+        <RadioButton
+            android:id="@+id/tab_source"
+            android:layout_width="0dp"
+            android:layout_height="42dp"
+            android:layout_weight="1"
+            android:button="@null"
+            android:checked="true"
+            android:gravity="center"
+            android:padding="8dp"
+            android:text="Source"
+            android:textSize="14sp"
+            android:textStyle="bold"
+            android:background="@android:color/white"
+            android:textColor="#444444" />
+
+        <RadioButton
+            android:id="@+id/tab_console"
+            android:layout_width="0dp"
+            android:layout_height="42dp"
+            android:layout_weight="1"
+            android:button="@null"
+            android:gravity="center"
+            android:padding="8dp"
+            android:text="Console"
+            android:textSize="14sp"
+            android:background="#DDDDDD"
+            android:textColor="#444444" />
+    </RadioGroup>
+
+    <!-- Content Container -->
+    <FrameLayout
+        android:id="@+id/dev_tools_content"
+        android:layout_width="match_parent"
+        android:layout_height="300dp">
+
+        <!-- Source View -->
+        <ScrollView
+            android:id="@+id/source_container"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:background="#FFFFFF"
+            android:visibility="visible"
+            android:padding="8dp">
+
+            <TextView
+                android:id="@+id/source_code_text"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:padding="8dp"
+                android:textSize="12sp"
+                android:textColor="#000000"
+                android:fontFamily="monospace" />
+        </ScrollView>
+
+        <!-- Console View -->
+        <androidx.recyclerview.widget.RecyclerView
+            android:id="@+id/console_log_recycler_view"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:background="#FFFFFF"
+            android:visibility="gone"
+            android:padding="4dp" />
+    </FrameLayout>
+    
+    <!-- Bottom Border -->
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="2dp"
+        android:background="#444444" />
+</LinearLayout>

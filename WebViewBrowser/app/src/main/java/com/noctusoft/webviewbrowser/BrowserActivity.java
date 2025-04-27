@@ -15,6 +15,7 @@ import android.graphics.Bitmap;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
 import android.os.Handler;
@@ -73,8 +74,12 @@ import com.noctusoft.webviewbrowser.ui.FavoritesAdapter;
 import com.noctusoft.webviewbrowser.ui.HistoryListActivity;
 import com.noctusoft.webviewbrowser.ui.VariableManagerActivity;
 
+import com.noctusoft.webviewbrowser.utils.JsonUtils;
+
 import org.json.JSONArray;
 import org.json.JSONObject;
+import org.jsoup.Jsoup;
+import org.jsoup.nodes.Document;
 
 import java.io.ByteArrayOutputStream;
 import java.io.FileWriter;
@@ -91,6 +96,9 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicInteger;
 
+import android.animation.Animator;
+import android.animation.AnimatorListenerAdapter;
+
 /**
  * Main activity for the browser app with WebView functionality.
  */
@@ -105,8 +113,8 @@ public class BrowserActivity extends AppCompatActivity {
     private static final int MAX_CLIPBOARD_SIZE = 393216; // ~384KB limit for clipboard
     private static final int PERMISSION_REQUEST_CODE = 1001;
     private static final int SELECTOR_TIMEOUT = 5000; // 5 seconds timeout for element selection
-    private static final int DEV_TOOLS_SOURCE = 0;
-    private static final int DEV_TOOLS_CONSOLE = 1;
+    private static final int DEV_TOOLS_TAB_SOURCE = 0;
+    private static final int DEV_TOOLS_TAB_CONSOLE = 1;
 
     // UI components
     private WebView webView;
@@ -123,7 +131,7 @@ public class BrowserActivity extends AppCompatActivity {
     private ImageButton devToolsButton;
     private ImageButton copyAllButton;
     private ImageButton selectorButton;
-    private LinearLayout devToolsView;
+    private View devToolsView;
     private TextView sourceCodeText;
     private RecyclerView consoleLogRecyclerView;
     private ConsoleLogAdapter consoleLogAdapter;
@@ -131,6 +139,7 @@ public class BrowserActivity extends AppCompatActivity {
     private boolean isConsoleVisible = false;
     private Button consoleToggleButton;
     private RadioGroup segmentedControl;
+    private ScrollView sourceContainer;
 
     // State
     private boolean isDevToolsVisible = false;
@@ -215,13 +224,10 @@ public class BrowserActivity extends AppCompatActivity {
         devToolsButton = findViewById(R.id.btn_dev_tools);
         copyAllButton = findViewById(R.id.btn_copy_all);
         selectorButton = findViewById(R.id.selector_button);
-        devToolsView = findViewById(R.id.dev_tools_view);
-        sourceCodeText = findViewById(R.id.source_code_text);
 
         // Set initial visibility
         progressBar.setVisibility(View.GONE);
         loadingIndicator.setVisibility(View.GONE);
-        devToolsView.setVisibility(View.GONE);
         stopButton.setVisibility(View.GONE);
         copyAllButton.setVisibility(View.GONE);
     }
@@ -241,7 +247,13 @@ public class BrowserActivity extends AppCompatActivity {
         webSettings.setBuiltInZoomControls(true);
         webSettings.setDisplayZoomControls(false);
 
+        // Allow mixed content (HTTP in HTTPS)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            webSettings.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
+        }
+
         // Add JavaScript interface for communication between WebView and app
+        webView.removeJavascriptInterface("Android"); // Remove any existing interface first
         webView.addJavascriptInterface(new WebAppInterface(), "Android");
         
         // Log that the interface was added
@@ -410,20 +422,44 @@ public class BrowserActivity extends AppCompatActivity {
         public void consoleLog(String type, String message) {
             Log.d(TAG, "Console " + type + ": " + message);
             
-            // Add log to the entries list
-            ConsoleLogEntry entry = new ConsoleLogEntry(type, message, new Date());
+            // Create an entry directly
+            final ConsoleLogEntry entry = new ConsoleLogEntry(type, message, new Date());
             
-            // Update UI on main thread
-            new Handler(Looper.getMainLooper()).post(() -> {
-                if (consoleLogEntries != null) {
+            runOnUiThread(() -> {
+                try {
+                    // Ensure we have a list
+                    if (consoleLogEntries == null) {
+                        consoleLogEntries = new ArrayList<>();
+                    }
+                    
+                    // Add the entry to the list
                     consoleLogEntries.add(entry);
+                    
+                    // Initialize adapter if needed and view is available
+                    if (consoleLogAdapter == null && consoleLogRecyclerView != null) {
+                        consoleLogAdapter = new ConsoleLogAdapter(consoleLogEntries);
+                        consoleLogRecyclerView.setLayoutManager(new LinearLayoutManager(BrowserActivity.this));
+                        consoleLogRecyclerView.setAdapter(consoleLogAdapter);
+                        Log.d(TAG, "Created new console adapter");
+                    }
+                    
+                    // Update adapter if available
                     if (consoleLogAdapter != null) {
-                        consoleLogAdapter.notifyItemInserted(consoleLogEntries.size() - 1);
-                        // Scroll to bottom
-                        if (consoleLogRecyclerView != null) {
-                            consoleLogRecyclerView.scrollToPosition(consoleLogEntries.size() - 1);
+                        consoleLogAdapter.notifyDataSetChanged();
+                        
+                        // Scroll to show latest message if visible
+                        if (consoleLogRecyclerView != null && 
+                            isDevToolsVisible && 
+                            segmentedControl != null && 
+                            segmentedControl.getCheckedRadioButtonId() == R.id.tab_console) {
+                            
+                            consoleLogRecyclerView.post(() -> {
+                                consoleLogRecyclerView.scrollToPosition(consoleLogEntries.size() - 1);
+                            });
                         }
                     }
+                } catch (Exception e) {
+                    Log.e(TAG, "Error handling console log: " + e.getMessage(), e);
                 }
             });
         }
@@ -431,12 +467,12 @@ public class BrowserActivity extends AppCompatActivity {
         @JavascriptInterface
         public void onPageFullyLoaded() {
             Log.d(TAG, "Page fully loaded callback from JavaScript");
-            new Handler(Looper.getMainLooper()).post(() -> {
+            runOnUiThread(() -> {
                 if (!isFinishing()) {
                     pageLoaded = true;
                     showLoading(false);
                     
-                    // Make sure console logger is injected
+                    // Make sure console logger is injected after page is fully loaded
                     injectConsoleLogger();
                     
                     if (timeoutHandler != null && timeoutRunnable != null) {
@@ -444,6 +480,19 @@ public class BrowserActivity extends AppCompatActivity {
                     }
                 }
             });
+        }
+        
+        // Additional methods to help with diagnostics
+        @JavascriptInterface
+        public boolean isInterfaceAvailable() {
+            // Simple method for JavaScript to test if the interface is working
+            Log.d(TAG, "isInterfaceAvailable() called from JavaScript");
+            return true;
+        }
+        
+        @JavascriptInterface
+        public String getInterfaceVersion() {
+            return "1.0";
         }
     }
 
@@ -552,357 +601,253 @@ public class BrowserActivity extends AppCompatActivity {
     }
 
     /**
-     * Toggles the visibility of the developer tools panel.
+     * Toggle the developer tools panel visibility
      */
-    @SuppressLint("InflateParams")
     private void toggleDevTools() {
-        Log.d(TAG, "Toggling developer tools");
-        
-        if (isDevToolsVisible) {
-            // Hide dev tools
-            if (devToolsView != null && devToolsView.getParent() != null) {
-                ((ViewGroup) devToolsView.getParent()).removeView(devToolsView);
-            }
-            isDevToolsVisible = false;
-            devToolsButton.setImageResource(android.R.drawable.ic_menu_info_details);
-        } else {
-            // Show dev tools
-            if (devToolsView == null) {
-                // Create dev tools view if not already created
-                setupDevToolsView();
-            }
-            
-            // Make sure all components are initialized
-            if (devToolsView == null) {
-                Log.e(TAG, "Failed to initialize devToolsView");
-                Toast.makeText(this, "Error initializing developer tools", Toast.LENGTH_SHORT).show();
-                return;
-            }
-            
-            // Get parent view for web view and add dev tools
-            ViewGroup rootView = (ViewGroup) webView.getParent().getParent();
-            if (rootView != null) {
-                rootView.addView(devToolsView);
-                isDevToolsVisible = true;
-                
-                // Set button to 'close' icon
-                devToolsButton.setImageResource(android.R.drawable.ic_menu_close_clear_cancel);
-                
-                // Refresh source display
-                refreshSourceCode();
-                
-                // Make sure JavaScript console logging is injected
-                injectConsoleLogger();
-            } else {
-                Log.e(TAG, "Cannot find parent view to attach developer tools");
-                Toast.makeText(this, "Error displaying developer tools", Toast.LENGTH_SHORT).show();
-            }
+        if (devToolsView == null) {
+            // Inflate the dev tools layout
+            devToolsView = getLayoutInflater().inflate(R.layout.layout_dev_tools, null);
+            // Initialize components
+            initDevToolsComponents();
         }
-    }
-    
-    /**
-     * Sets up the developer tools view to match iOS implementation
-     */
-    private void setupDevToolsView() {
-        Log.d(TAG, "Setting up developer tools view");
         
-        try {
-            // Create main container that will take bottom half of screen
-            devToolsView = new FrameLayout(this);
-            devToolsView.setBackgroundColor(Color.WHITE);
-            devToolsView.setLayoutParams(new FrameLayout.LayoutParams(
-                    FrameLayout.LayoutParams.MATCH_PARENT,
-                    FrameLayout.LayoutParams.MATCH_PARENT));
-            
-            // Create content
-            LinearLayout contentLayout = new LinearLayout(this);
-            contentLayout.setOrientation(LinearLayout.VERTICAL);
-            contentLayout.setLayoutParams(new FrameLayout.LayoutParams(
-                    FrameLayout.LayoutParams.MATCH_PARENT,
-                    FrameLayout.LayoutParams.MATCH_PARENT));
-            
-            // Add toolbar
-            Toolbar toolbar = new Toolbar(this);
-            toolbar.setBackgroundColor(getResources().getColor(android.R.color.darker_gray));
-            toolbar.setTitleTextColor(Color.WHITE);
-            toolbar.setTitle("Developer Tools");
-            
-            // Add close button to toolbar (using menu item instead of direct view)
-            toolbar.setNavigationIcon(android.R.drawable.ic_menu_close_clear_cancel);
-            toolbar.setNavigationOnClickListener(v -> toggleDevTools());
-            
-            // Create toolbar action buttons
-            Button clearButton = new Button(this);
-            clearButton.setText("Clear");
-            clearButton.setTextColor(Color.WHITE);
-            clearButton.setBackgroundColor(Color.TRANSPARENT);
-            clearButton.setOnClickListener(v -> {
-                if (segmentedControl.getCheckedRadioButtonId() == R.id.radio_console) {
-                    clearConsoleLogs();
-                }
-            });
-            
-            Button copyButton = new Button(this);
-            copyButton.setText("Copy");
-            copyButton.setTextColor(Color.WHITE);
-            copyButton.setBackgroundColor(Color.TRANSPARENT);
-            copyButton.setOnClickListener(v -> {
-                if (segmentedControl.getCheckedRadioButtonId() == R.id.radio_source) {
-                    copySourceToClipboard();
-                } else {
-                    copyConsoleLogsToClipboard();
-                }
-            });
-            
-            Button testLogButton = new Button(this);
-            testLogButton.setText("Test Log");
-            testLogButton.setTextColor(Color.WHITE);
-            testLogButton.setBackgroundColor(Color.TRANSPARENT);
-            testLogButton.setOnClickListener(v -> testConsoleLog());
-            
-            // Create toolbar actions layout
-            LinearLayout toolbarActions = new LinearLayout(this);
-            toolbarActions.setOrientation(LinearLayout.HORIZONTAL);
-            toolbarActions.setGravity(Gravity.END);
-            toolbarActions.addView(clearButton);
-            toolbarActions.addView(copyButton);
-            toolbarActions.addView(testLogButton);
-            
-            // Add toolbar actions to right side of toolbar
-            Toolbar.LayoutParams layoutParams = new Toolbar.LayoutParams(
-                    Toolbar.LayoutParams.WRAP_CONTENT,
-                    Toolbar.LayoutParams.WRAP_CONTENT);
-            layoutParams.gravity = Gravity.END;
-            toolbarActions.setLayoutParams(layoutParams);
-            toolbar.addView(toolbarActions);
-            
-            // Add toolbar to content layout
-            contentLayout.addView(toolbar);
-            
-            // Create segmented control (radio group)
-            segmentedControl = new RadioGroup(this);
-            segmentedControl.setOrientation(LinearLayout.HORIZONTAL);
-            segmentedControl.setBackgroundColor(Color.LTGRAY);
-            
-            // Create source tab button
-            RadioButton sourceTab = new RadioButton(this);
-            sourceTab.setId(R.id.radio_source);
-            sourceTab.setText("Source");
-            sourceTab.setLayoutParams(new RadioGroup.LayoutParams(
-                    0, RadioGroup.LayoutParams.WRAP_CONTENT, 1));
-            sourceTab.setGravity(Gravity.CENTER);
-            sourceTab.setButtonDrawable(null); // Remove radio button circle
-            sourceTab.setBackgroundColor(Color.LTGRAY);
-            sourceTab.setPadding(8, 16, 8, 16);
-            
-            // Create console tab button
-            RadioButton consoleTab = new RadioButton(this);
-            consoleTab.setId(R.id.radio_console);
-            consoleTab.setText("Console");
-            consoleTab.setLayoutParams(new RadioGroup.LayoutParams(
-                    0, RadioGroup.LayoutParams.WRAP_CONTENT, 1));
-            consoleTab.setGravity(Gravity.CENTER);
-            consoleTab.setButtonDrawable(null); // Remove radio button circle
-            consoleTab.setBackgroundColor(Color.LTGRAY);
-            consoleTab.setPadding(8, 16, 8, 16);
-            
-            segmentedControl.addView(sourceTab);
-            segmentedControl.addView(consoleTab);
-            contentLayout.addView(segmentedControl);
-            
-            // Create container for tab content
-            FrameLayout contentContainer = new FrameLayout(this);
-            contentContainer.setLayoutParams(new LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT,
-                    0,
-                    1.0f)); // Take remaining space
-            
-            // Create source view
-            ScrollView sourceScrollView = new ScrollView(this);
-            sourceScrollView.setLayoutParams(new FrameLayout.LayoutParams(
-                    FrameLayout.LayoutParams.MATCH_PARENT,
-                    FrameLayout.LayoutParams.MATCH_PARENT));
-            sourceScrollView.setBackgroundColor(Color.WHITE);
-            
-            sourceCodeText = new TextView(this);
-            sourceCodeText.setTypeface(Typeface.MONOSPACE);
-            sourceCodeText.setTextSize(12);
-            sourceCodeText.setPadding(16, 16, 16, 16);
-            sourceCodeText.setLayoutParams(new ViewGroup.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT,
-                    ViewGroup.LayoutParams.WRAP_CONTENT));
-            
-            sourceScrollView.addView(sourceCodeText);
-            contentContainer.addView(sourceScrollView);
-            
-            // Create console view
-            consoleLogRecyclerView = new RecyclerView(this);
-            consoleLogRecyclerView.setLayoutParams(new FrameLayout.LayoutParams(
-                    FrameLayout.LayoutParams.MATCH_PARENT,
-                    FrameLayout.LayoutParams.MATCH_PARENT));
-            consoleLogRecyclerView.setBackgroundColor(Color.WHITE);
-            consoleLogRecyclerView.setLayoutManager(new LinearLayoutManager(this));
-            
-            // Initialize console log collection if needed
-            if (consoleLogEntries == null) {
-                consoleLogEntries = new ArrayList<>();
+        // Get the parent view container
+        FrameLayout webViewContainer = findViewById(R.id.web_view_container);
+        if (webViewContainer == null) {
+            Log.e(TAG, "Cannot toggle developer tools: web view container not found");
+            return;
+        }
+        
+        // If dev tools are currently shown, hide them
+        if (isDevToolsVisible) {
+            // Check if devToolsView has a parent, then remove it
+            ViewGroup parent = (ViewGroup) devToolsView.getParent();
+            if (parent != null) {
+                // Animate hiding
+                devToolsView.animate()
+                    .translationY(devToolsView.getHeight())
+                    .alpha(0.0f)
+                    .setDuration(250)
+                    .setListener(new AnimatorListenerAdapter() {
+                        @Override
+                        public void onAnimationEnd(Animator animation) {
+                            parent.removeView(devToolsView);
+                            isDevToolsVisible = false;
+                        }
+                    });
+            } else {
+                isDevToolsVisible = false;
+            }
+        } else {
+            // First make sure devToolsView doesn't have a parent
+            ViewGroup parent = (ViewGroup) devToolsView.getParent();
+            if (parent != null) {
+                parent.removeView(devToolsView);
             }
             
-            // Set up console log adapter
-            consoleLogAdapter = new ConsoleLogAdapter(consoleLogEntries);
-            consoleLogRecyclerView.setAdapter(consoleLogAdapter);
-            
-            // Add to content container
-            contentContainer.addView(consoleLogRecyclerView);
-            
-            // Hide initially
-            consoleLogRecyclerView.setVisibility(View.GONE);
-            
-            // Add content container to main layout
-            contentLayout.addView(contentContainer);
-            
-            // Add content layout to dev tools view
-            devToolsView.addView(contentLayout);
-            
-            // Set tab change listener
-            segmentedControl.setOnCheckedChangeListener((group, checkedId) -> {
-                if (checkedId == R.id.radio_source) {
-                    // Show source, hide console
-                    sourceScrollView.setVisibility(View.VISIBLE);
-                    consoleLogRecyclerView.setVisibility(View.GONE);
-                    // Update selected tab styling
-                    sourceTab.setBackgroundColor(Color.WHITE);
-                    consoleTab.setBackgroundColor(Color.LTGRAY);
-                    // Refresh source code
-                    refreshSourceCode();
-                } else {
-                    // Show console, hide source
-                    sourceScrollView.setVisibility(View.GONE);
-                    consoleLogRecyclerView.setVisibility(View.VISIBLE);
-                    // Update selected tab styling
-                    sourceTab.setBackgroundColor(Color.LTGRAY);
-                    consoleTab.setBackgroundColor(Color.WHITE);
-                    // Inject test log
-                    new Handler(Looper.getMainLooper()).postDelayed(() -> {
-                        webView.evaluateJavascript(
-                            "console.log('Console tab activated');" +
-                            "console.info('Log entries should appear here');", 
-                            null
-                        );
-                    }, 100);
-                }
-            });
-            
-            // Select source tab by default
-            sourceTab.setChecked(true);
-            
-            // Set developer tools height to 50% of screen
+            // Get device screen height
             DisplayMetrics displayMetrics = new DisplayMetrics();
             getWindowManager().getDefaultDisplay().getMetrics(displayMetrics);
             int screenHeight = displayMetrics.heightPixels;
             
-            ViewGroup.LayoutParams layoutParams2 = devToolsView.getLayoutParams();
-            layoutParams2.height = screenHeight / 2;
-            devToolsView.setLayoutParams(layoutParams2);
+            // Calculate dev tools height (about 40% of screen height)
+            int devToolsHeight = (int) (screenHeight * 0.4);
+            ViewGroup.LayoutParams params = devToolsView.getLayoutParams();
+            if (params == null) {
+                params = new ViewGroup.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        devToolsHeight);
+            } else {
+                params.height = devToolsHeight;
+            }
+            devToolsView.setLayoutParams(params);
             
-            Log.d(TAG, "Developer tools view setup completed successfully");
-        } catch (Exception e) {
-            Log.e(TAG, "Error setting up developer tools view: " + e.getMessage());
-            e.printStackTrace();
-            Toast.makeText(this, "Error initializing developer tools: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+            // Set initial translation for animation
+            devToolsView.setTranslationY(devToolsHeight);
+            devToolsView.setAlpha(0.0f);
+            
+            // Add dev tools to container and show with animation
+            webViewContainer.addView(devToolsView);
+            devToolsView.animate()
+                .translationY(0)
+                .alpha(1.0f)
+                .setDuration(250)
+                .setListener(null);
+            
+            isDevToolsVisible = true;
+            
+            // Load source code immediately regardless of which tab is selected
+            loadSourceCode();
+            
+            // Make sure console logger is injected
+            injectConsoleLogger();
         }
     }
     
     /**
-     * Shows the developer tools with the specified mode
-     * @param mode The mode to show (DEV_TOOLS_SOURCE or DEV_TOOLS_CONSOLE)
+     * Initialize developer tools UI components
      */
-    private void showDevTools(int mode) {
-        // First make sure dev tools are visible
-        if (!isDevToolsVisible) {
-            toggleDevTools();
+    private void initDevToolsComponents() {
+        if (devToolsView == null) return;
+        
+        // Get references to views
+        sourceCodeText = devToolsView.findViewById(R.id.source_code_text);
+        consoleLogRecyclerView = devToolsView.findViewById(R.id.console_log_recycler_view);
+        sourceContainer = devToolsView.findViewById(R.id.source_container);
+        segmentedControl = devToolsView.findViewById(R.id.dev_tools_tabs);
+        
+        // Set up toolbar with close button
+        Toolbar toolbar = devToolsView.findViewById(R.id.dev_tools_toolbar);
+        toolbar.setNavigationIcon(android.R.drawable.ic_menu_close_clear_cancel);
+        toolbar.setNavigationOnClickListener(v -> toggleDevTools());
+        
+        // Set up toolbar action buttons
+        Button clearButton = devToolsView.findViewById(R.id.btn_clear_logs);
+        Button copyButton = devToolsView.findViewById(R.id.btn_copy_content);
+        Button testLogButton = devToolsView.findViewById(R.id.btn_test_log);
+        
+        clearButton.setOnClickListener(v -> clearContent());
+        copyButton.setOnClickListener(v -> copyContent());
+        testLogButton.setOnClickListener(v -> testConsoleLog());
+        
+        // Set up console log recycler view
+        if (consoleLogEntries == null) {
+            consoleLogEntries = new ArrayList<>();
+            Log.d(TAG, "Created new consoleLogEntries list");
         }
         
-        // Select the appropriate tab
-        if (segmentedControl != null) {
-            if (mode == DEV_TOOLS_SOURCE) {
-                segmentedControl.check(R.id.radio_source);
-            } else if (mode == DEV_TOOLS_CONSOLE) {
-                segmentedControl.check(R.id.radio_console);
-            }
+        // Force recreation of adapter for each initialization
+        consoleLogAdapter = new ConsoleLogAdapter(consoleLogEntries);
+        consoleLogRecyclerView.setLayoutManager(new LinearLayoutManager(this));
+        consoleLogRecyclerView.setAdapter(consoleLogAdapter);
+        
+        // Add sample log to verify adapter setup
+        if (consoleLogEntries.isEmpty()) {
+            ConsoleLogEntry entry = new ConsoleLogEntry("info", "DevTools initialized - waiting for console logs", new Date());
+            consoleLogEntries.add(entry);
+            consoleLogAdapter.notifyDataSetChanged();
         }
-    }
-    
-    /**
-     * Copy current source code to clipboard
-     */
-    private void copySourceToClipboard() {
-        if (sourceCodeText != null && sourceCodeText.getText() != null) {
-            ClipboardManager clipboard = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
-            ClipData clip = ClipData.newPlainText("HTML Source", sourceCodeText.getText().toString());
-            clipboard.setPrimaryClip(clip);
-            Toast.makeText(this, "Source code copied to clipboard", Toast.LENGTH_SHORT).show();
-        }
-    }
-    
-    /**
-     * Copy console logs to clipboard
-     */
-    private void copyConsoleLogsToClipboard() {
-        if (consoleLogEntries != null && !consoleLogEntries.isEmpty()) {
-            StringBuilder logs = new StringBuilder();
-            SimpleDateFormat sdf = new SimpleDateFormat("HH:mm:ss.SSS", Locale.getDefault());
-            
-            for (ConsoleLogEntry entry : consoleLogEntries) {
-                logs.append(sdf.format(entry.getTimestamp()))
-                    .append(" [")
-                    .append(entry.getType())
-                    .append("] ")
-                    .append(entry.getMessage())
-                    .append("\n");
-            }
-            
-            ClipboardManager clipboard = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
-            ClipData clip = ClipData.newPlainText("Console Logs", logs.toString());
-            clipboard.setPrimaryClip(clip);
-            Toast.makeText(this, "Console logs copied to clipboard", Toast.LENGTH_SHORT).show();
-        } else {
-            Toast.makeText(this, "No console logs to copy", Toast.LENGTH_SHORT).show();
-        }
-    }
-    
-    /**
-     * Clear console logs
-     */
-    private void clearConsoleLogs() {
-        if (consoleLogEntries != null) {
-            consoleLogEntries.clear();
-            if (consoleLogAdapter != null) {
-                consoleLogAdapter.notifyDataSetChanged();
-            }
-            Toast.makeText(this, "Console logs cleared", Toast.LENGTH_SHORT).show();
-        }
-    }
-
-    /**
-     * Refresh source code display
-     */
-    private void refreshSourceCode() {
-        if (webView != null && sourceCodeText != null) {
-            webView.evaluateJavascript(
-                "(function() { return document.documentElement.outerHTML; })();",
-                html -> {
-                    if (html != null) {
-                        String formattedHtml = formatHtml(Jsoup.parse(JsonUtils.parseJsonString(html)).outerHtml());
-                        sourceCodeText.setText(formattedHtml);
+        
+        Log.d(TAG, "Console adapter setup complete with " + consoleLogEntries.size() + " entries");
+        
+        // Get references to tab buttons for styling
+        RadioButton sourceTab = devToolsView.findViewById(R.id.tab_source);
+        RadioButton consoleTab = devToolsView.findViewById(R.id.tab_console);
+        
+        // Set up tab selection listener
+        segmentedControl.setOnCheckedChangeListener((group, checkedId) -> {
+            if (checkedId == R.id.tab_source) {
+                // Show source, hide console
+                sourceContainer.setVisibility(View.VISIBLE);
+                consoleLogRecyclerView.setVisibility(View.GONE);
+                
+                // Update tab appearance
+                sourceTab.setBackgroundColor(Color.WHITE);
+                sourceTab.setTextColor(Color.parseColor("#444444"));
+                sourceTab.setTypeface(null, Typeface.BOLD);
+                
+                consoleTab.setBackgroundColor(Color.parseColor("#DDDDDD"));
+                consoleTab.setTextColor(Color.parseColor("#444444"));
+                consoleTab.setTypeface(null, Typeface.NORMAL);
+                
+                // Update source code if it's not already loaded
+                if (sourceCodeText.getText().toString().isEmpty()) {
+                    loadSourceCode();
+                }
+            } else if (checkedId == R.id.tab_console) {
+                // Show console, hide source
+                sourceContainer.setVisibility(View.GONE);
+                consoleLogRecyclerView.setVisibility(View.VISIBLE);
+                
+                // Update tab appearance
+                consoleTab.setBackgroundColor(Color.WHITE);
+                consoleTab.setTextColor(Color.parseColor("#444444"));
+                consoleTab.setTypeface(null, Typeface.BOLD);
+                
+                sourceTab.setBackgroundColor(Color.parseColor("#DDDDDD"));
+                sourceTab.setTextColor(Color.parseColor("#444444"));
+                sourceTab.setTypeface(null, Typeface.NORMAL);
+                
+                // Inject console logger and verify it's working
+                injectConsoleLogger();
+                
+                // Verify list and adapter are working
+                if (consoleLogAdapter != null) {
+                    consoleLogAdapter.notifyDataSetChanged();
+                    Log.d(TAG, "Refreshed console log adapter with " + consoleLogEntries.size() + " entries");
+                    
+                    // Scroll to latest log if there are entries
+                    if (!consoleLogEntries.isEmpty()) {
+                        consoleLogRecyclerView.scrollToPosition(consoleLogEntries.size() - 1);
                     }
                 }
-            );
+            }
+        });
+        
+        // Make sure initial tab styling is applied
+        if (segmentedControl.getCheckedRadioButtonId() == R.id.tab_source) {
+            sourceTab.setBackgroundColor(Color.WHITE);
+            sourceTab.setTextColor(Color.parseColor("#444444"));
+            sourceTab.setTypeface(null, Typeface.BOLD);
+            
+            consoleTab.setBackgroundColor(Color.parseColor("#DDDDDD"));
+            consoleTab.setTextColor(Color.parseColor("#444444"));
+            consoleTab.setTypeface(null, Typeface.NORMAL);
+        } else {
+            consoleTab.setBackgroundColor(Color.WHITE);
+            consoleTab.setTextColor(Color.parseColor("#444444"));
+            consoleTab.setTypeface(null, Typeface.BOLD);
+            
+            sourceTab.setBackgroundColor(Color.parseColor("#DDDDDD"));
+            sourceTab.setTextColor(Color.parseColor("#444444"));
+            sourceTab.setTypeface(null, Typeface.NORMAL);
         }
     }
-
+    
     /**
-     * Format HTML with indentation
+     * Load source code for the current page
+     */
+    private void loadSourceCode() {
+        if (webView == null || sourceCodeText == null) {
+            return;
+        }
+        
+        // Show loading indicator in source code view
+        sourceCodeText.setText("Loading source code...");
+        
+        // Get source code of the current page
+        webView.evaluateJavascript(
+                "(function() { return document.documentElement.outerHTML; })();",
+                html -> {
+                    if (html == null || html.equals("null")) {
+                        sourceCodeText.setText("No source code available");
+                        return;
+                    }
+                    
+                    // Parse and format the HTML (this might be a large string, so do on background thread)
+                    Executors.newSingleThreadExecutor().execute(() -> {
+                        // Decode the JSON string
+                        String decodedHtml = JsonUtils.unescapeJavaScript(html);
+                        
+                        // Format the HTML nicely
+                        final String formattedHtml = formatHtml(decodedHtml);
+                        
+                        // Update UI on main thread
+                        runOnUiThread(() -> {
+                            sourceCodeText.setText(formattedHtml);
+                            // Set monospace font and other formatting
+                            sourceCodeText.setTypeface(Typeface.MONOSPACE);
+                            // Add padding and line numbers if needed
+                            sourceCodeText.setPadding(16, 16, 16, 16);
+                        });
+                    });
+                });
+    }
+    
+    /**
+     * Format HTML with proper indentation using Jsoup
+     * @param html Raw HTML to format
+     * @return Formatted HTML
      */
     private String formatHtml(String html) {
         try {
@@ -912,112 +857,6 @@ public class BrowserActivity extends AppCompatActivity {
         } catch (Exception e) {
             Log.e(TAG, "Error formatting HTML: " + e.getMessage());
             return html;
-        }
-    }
-
-    /**
-     * Injects JavaScript to capture console logs
-     */
-    private void injectConsoleLogger() {
-        if (webView == null) {
-            Log.e(TAG, "Cannot inject console logger: WebView is null");
-            return;
-        }
-        
-        Log.d(TAG, "Injecting console logger JavaScript");
-        
-        final String consoleScript = 
-            "(function() {" +
-            "   try {" +
-            "      if (window.consoleLoggerInjected) return;" +
-            "      if (typeof Android === 'undefined' || typeof Android.consoleLog !== 'function') {" +
-            "          console.log('Android interface not found, cannot initialize console logger');" +
-            "          return false;" +
-            "      }" +
-            "      console.originalLog = console.log;" +
-            "      console.originalError = console.error;" +
-            "      console.originalWarn = console.warn;" +
-            "      console.originalInfo = console.info;" +
-            "      console.originalDebug = console.debug;" +
-            
-            "      console.log = function() {" +
-            "          var args = Array.prototype.slice.call(arguments);" +
-            "          console.originalLog.apply(console, args);" +
-            "          var message = args.map(function(arg) {" +
-            "              return (typeof arg === 'object') ? JSON.stringify(arg) : String(arg);" + 
-            "          }).join(' ');" +
-            "          Android.consoleLog('log', message);" +
-            "      };" +
-            
-            "      console.error = function() {" +
-            "          var args = Array.prototype.slice.call(arguments);" +
-            "          console.originalError.apply(console, args);" +
-            "          var message = args.map(function(arg) {" +
-            "              return (typeof arg === 'object') ? JSON.stringify(arg) : String(arg);" + 
-            "          }).join(' ');" +
-            "          Android.consoleLog('error', message);" +
-            "      };" +
-            
-            "      console.warn = function() {" +
-            "          var args = Array.prototype.slice.call(arguments);" +
-            "          console.originalWarn.apply(console, args);" +
-            "          var message = args.map(function(arg) {" +
-            "              return (typeof arg === 'object') ? JSON.stringify(arg) : String(arg);" + 
-            "          }).join(' ');" +
-            "          Android.consoleLog('warn', message);" +
-            "      };" +
-            
-            "      console.info = function() {" +
-            "          var args = Array.prototype.slice.call(arguments);" +
-            "          console.originalInfo.apply(console, args);" +
-            "          var message = args.map(function(arg) {" +
-            "              return (typeof arg === 'object') ? JSON.stringify(arg) : String(arg);" + 
-            "          }).join(' ');" +
-            "          Android.consoleLog('info', message);" +
-            "      };" +
-            
-            "      console.debug = function() {" +
-            "          var args = Array.prototype.slice.call(arguments);" +
-            "          console.originalDebug.apply(console, args);" +
-            "          var message = args.map(function(arg) {" +
-            "              return (typeof arg === 'object') ? JSON.stringify(arg) : String(arg);" + 
-            "          }).join(' ');" +
-            "          Android.consoleLog('debug', message);" +
-            "      };" +
-            
-            "      window.consoleLoggerInjected = true;" +
-            "      console.log('Console logger initialized');" +
-            "      return true;" +
-            "   } catch(e) {" +
-            "      console.originalLog('Error initializing console logger: ' + e);" +
-            "      return false;" +
-            "   }" +
-            "})();";
-        
-        webView.evaluateJavascript(consoleScript, result -> {
-            Log.d(TAG, "Console logger initialized: " + result);
-            if (!"true".equals(result)) {
-                Log.e(TAG, "Failed to initialize console logger");
-            } else {
-                // Generate test logs for verification
-                new Handler(Looper.getMainLooper()).postDelayed(() -> {
-                    webView.evaluateJavascript(
-                        "console.log('Test log message');" +
-                        "console.error('Test error message');" +
-                        "console.warn('Test warning message');" +
-                        "console.info('Test info message');", 
-                        null
-                    );
-                }, 500);
-            }
-        });
-    }
-
-    // Clear console logs
-    private void clearConsoleLogs() {
-        consoleLogEntries.clear();
-        if (consoleLogAdapter != null) {
-            consoleLogAdapter.notifyDataSetChanged();
         }
     }
 
@@ -1675,20 +1514,6 @@ public class BrowserActivity extends AppCompatActivity {
     }
 
     /**
-     * Injects JavaScript to detect form fields.
-     */
-    private void injectFormDetectionScript() {
-        String javascript = "javascript:" +
-                "document.querySelectorAll('input').forEach(function(input) {" +
-                "    input.addEventListener('focus', function() {" +
-                "        Android.onFormField(this.type, this.name);" +
-                "    });" +
-                "});";
-
-        webView.evaluateJavascript(javascript, null);
-    }
-
-    /**
      * Updates the URL bar with the current URL.
      *
      * @param url The URL to display in the address bar.
@@ -1766,23 +1591,60 @@ public class BrowserActivity extends AppCompatActivity {
 
     // Test console logging with various types of logs
     private void testConsoleLog() {
-        Log.d(TAG, "Running test console log");
-        String testScript = 
-            "console.log('Test log message from button');" +
-            "console.error('Test error message');" +
-            "console.warn('Test warning message');" +
-            "console.info('Test info message');" +
-            "console.log('Object test:', JSON.stringify({name: 'Test Object', value: 42}));";
+        if (webView == null) {
+            Toast.makeText(this, "WebView is not initialized", Toast.LENGTH_SHORT).show();
+            return;
+        }
         
-        webView.evaluateJavascript(testScript, null);
+        // Show console tab if not already showing
+        if (segmentedControl != null && segmentedControl.getCheckedRadioButtonId() != R.id.tab_console) {
+            showDevTools(DEV_TOOLS_TAB_CONSOLE);
+        }
         
-        // Show dev tools with console tab
-        showDevTools(DEV_TOOLS_CONSOLE);
+        // First make sure the console logger is properly initialized
+        injectConsoleLogger();
+        
+        // Wait a moment for the console logger to initialize
+        new Handler(Looper.getMainLooper()).postDelayed(() -> {
+            // Add a direct test entry - this bypasses JavaScript entirely
+            ConsoleLogEntry directEntry = new ConsoleLogEntry("info", "Direct test entry - added from Java code", new Date());
+            consoleLogEntries.add(directEntry);
+            
+            if (consoleLogAdapter != null) {
+                consoleLogAdapter.notifyDataSetChanged();
+                if (consoleLogRecyclerView != null) {
+                    consoleLogRecyclerView.scrollToPosition(consoleLogEntries.size() - 1);
+                }
+            }
+            
+            // Now try through JavaScript
+            Log.d(TAG, "Testing console log via JavaScript");
+            
+            // Inject JavaScript to generate various log types
+            final String testScript = 
+                "if (typeof Android !== 'undefined' && typeof Android.consoleLog === 'function') {" +
+                "    Android.consoleLog('log', 'Direct Android interface test (bypassing console)');" +
+                "}" +
+                "console.log('Standard log message');" +
+                "console.debug('Debug message - dark gray');" +
+                "console.info('Info message - blue');" +
+                "console.warn('Warning message - orange');" +
+                "console.error('Error message - red');" +
+                "console.log('Object example:', { id: 1, name: 'Test', nested: { value: true } });" +
+                "console.log('Array example:', [1, 2, 3, 'test', { key: 'value' }]);" +
+                "try { throw new Error('Test exception'); } catch(e) { console.error('Caught exception:', e); }" +
+                "console.log('Log with multiple arguments:', 42, true, null, undefined);";
+            
+            webView.evaluateJavascript(testScript, result -> {
+                Log.d(TAG, "Test script executed with result: " + result);
+                Toast.makeText(BrowserActivity.this, "Test logs generated", Toast.LENGTH_SHORT).show();
+            });
+        }, 300);
     }
-
+    
     /**
-     * Shows developer tools with the specified mode active.
-     * @param mode The mode to display (DEV_TOOLS_SOURCE or DEV_TOOLS_CONSOLE)
+     * Shows the developer tools panel with the specified tab selected
+     * @param mode The tab to select (DEV_TOOLS_TAB_SOURCE or DEV_TOOLS_TAB_CONSOLE)
      */
     private void showDevTools(int mode) {
         // First make sure dev tools are visible
@@ -1790,126 +1652,393 @@ public class BrowserActivity extends AppCompatActivity {
             toggleDevTools();
         }
         
-        // Select the appropriate tab based on mode
+        // Select the appropriate tab
         if (segmentedControl != null) {
-            if (mode == DEV_TOOLS_SOURCE) {
-                segmentedControl.check(R.id.radio_source);
-            } else if (mode == DEV_TOOLS_CONSOLE) {
-                segmentedControl.check(R.id.radio_console);
+            if (mode == DEV_TOOLS_TAB_SOURCE) {
+                segmentedControl.check(R.id.tab_source);
+            } else if (mode == DEV_TOOLS_TAB_CONSOLE) {
+                segmentedControl.check(R.id.tab_console);
             }
         }
     }
-}
+    
+    /**
+     * Injects JavaScript to capture console logs
+     */
+    private void injectConsoleLogger() {
+        if (webView == null) {
+            Log.e(TAG, "Cannot inject console logger: WebView is null");
+            return;
+        }
+        
+        Log.d(TAG, "Injecting console logger JavaScript");
+        
+        // Simpler, more reliable console logging script
+        final String consoleScript = 
+            "(function() {\n" +
+            "    try {\n" +
+            "        // Simple check if we're already initialized\n" +
+            "        if (window.androidConsoleHooked === true) {\n" +
+            "            console.log('Android console already hooked');\n" +
+            "            return true;\n" +
+            "        }\n" +
+            "\n" +
+            "        // First verify the Android bridge exists\n" +
+            "        if (typeof Android === 'undefined') {\n" +
+            "            console.error('Android interface not found');\n" +
+            "            return false;\n" +
+            "        }\n" +
+            "\n" +
+            "        // Direct test of interface\n" +
+            "        try {\n" +
+            "            Android.consoleLog('init', 'Testing Android interface...');\n" +
+            "        } catch (e) {\n" +
+            "            console.error('Android.consoleLog test failed: ' + e.message);\n" +
+            "            return false;\n" +
+            "        }\n" +
+            "\n" +
+            "        // Store original methods\n" +
+            "        var originalLog = console.log;\n" +
+            "        var originalError = console.error;\n" +
+            "        var originalWarn = console.warn;\n" +
+            "        var originalInfo = console.info;\n" +
+            "        var originalDebug = console.debug;\n" +
+            "\n" +
+            "        // Simple object stringifier\n" +
+            "        function stringify(obj) {\n" +
+            "            if (obj === null) return 'null';\n" +
+            "            if (obj === undefined) return 'undefined';\n" +
+            "            if (typeof obj === 'string') return obj;\n" +
+            "            if (typeof obj !== 'object') return String(obj);\n" +
+            "            try {\n" +
+            "                return JSON.stringify(obj);\n" +
+            "            } catch (e) {\n" +
+            "                return '[Object]';\n" +
+            "            }\n" +
+            "        }\n" +
+            "\n" +
+            "        // Override console methods\n" +
+            "        console.log = function() {\n" +
+            "            originalLog.apply(console, arguments);\n" +
+            "            try {\n" +
+            "                var message = Array.prototype.map.call(arguments, stringify).join(' ');\n" +
+            "                Android.consoleLog('log', message);\n" +
+            "            } catch (e) {\n" +
+            "                originalError.call(console, 'Error in console.log override: ' + e.message);\n" +
+            "            }\n" +
+            "        };\n" +
+            "\n" +
+            "        console.error = function() {\n" +
+            "            originalError.apply(console, arguments);\n" +
+            "            try {\n" +
+            "                var message = Array.prototype.map.call(arguments, stringify).join(' ');\n" +
+            "                Android.consoleLog('error', message);\n" +
+            "            } catch (e) {\n" +
+            "                originalError.call(console, 'Error in console.error override: ' + e.message);\n" +
+            "            }\n" +
+            "        };\n" +
+            "\n" +
+            "        console.warn = function() {\n" +
+            "            originalWarn.apply(console, arguments);\n" +
+            "            try {\n" +
+            "                var message = Array.prototype.map.call(arguments, stringify).join(' ');\n" +
+            "                Android.consoleLog('warn', message);\n" +
+            "            } catch (e) {\n" +
+            "                originalError.call(console, 'Error in console.warn override: ' + e.message);\n" +
+            "            }\n" +
+            "        };\n" +
+            "\n" +
+            "        console.info = function() {\n" +
+            "            originalInfo.apply(console, arguments);\n" +
+            "            try {\n" +
+            "                var message = Array.prototype.map.call(arguments, stringify).join(' ');\n" +
+            "                Android.consoleLog('info', message);\n" +
+            "            } catch (e) {\n" +
+            "                originalError.call(console, 'Error in console.info override: ' + e.message);\n" +
+            "            }\n" +
+            "        };\n" +
+            "\n" +
+            "        console.debug = function() {\n" +
+            "            originalDebug.apply(console, arguments);\n" +
+            "            try {\n" +
+            "                var message = Array.prototype.map.call(arguments, stringify).join(' ');\n" +
+            "                Android.consoleLog('debug', message);\n" +
+            "            } catch (e) {\n" +
+            "                originalError.call(console, 'Error in console.debug override: ' + e.message);\n" +
+            "            }\n" +
+            "        };\n" +
+            "\n" +
+            "        // Mark as initialized\n" +
+            "        window.androidConsoleHooked = true;\n" +
+            "        console.log('Android console logging initialized successfully');\n" +
+            "        return true;\n" +
+            "    } catch (e) {\n" +
+            "        if (typeof console !== 'undefined' && console.error) {\n" +
+            "            console.error('Failed to initialize Android console: ' + e.message);\n" +
+            "        }\n" +
+            "        return false;\n" +
+            "    }\n" +
+            "})();";
+        
+        // Inject the script with error handling
+        try {
+            webView.evaluateJavascript(consoleScript, result -> {
+                Log.d(TAG, "Console logger initialization result: " + result);
+                if (!"true".equals(result)) {
+                    Log.e(TAG, "Failed to initialize console logger - result: " + result);
+                    // Still add items to the console log list to indicate the issue
+                    ConsoleLogEntry errorEntry = new ConsoleLogEntry(
+                            "error", 
+                            "Failed to initialize console logger. Please reload the page.", 
+                            new Date());
+                    
+                    runOnUiThread(() -> {
+                        if (consoleLogEntries != null) {
+                            consoleLogEntries.add(errorEntry);
+                            if (consoleLogAdapter != null) {
+                                consoleLogAdapter.notifyDataSetChanged();
+                            }
+                        }
+                    });
+                } else {
+                    // Test with a simple message
+                    ConsoleLogEntry successEntry = new ConsoleLogEntry(
+                            "info", 
+                            "Console logger initialized successfully", 
+                            new Date());
+                    
+                    runOnUiThread(() -> {
+                        if (consoleLogEntries != null) {
+                            consoleLogEntries.add(successEntry);
+                            if (consoleLogAdapter != null) {
+                                consoleLogAdapter.notifyDataSetChanged();
+                                if (consoleLogRecyclerView != null) {
+                                    consoleLogRecyclerView.scrollToPosition(consoleLogEntries.size() - 1);
+                                }
+                            }
+                        }
+                    });
+                }
+            });
+        } catch (Exception e) {
+            Log.e(TAG, "Exception injecting console logger: " + e.getMessage(), e);
+        }
+    }
 
-/**
- * Model class for console log entries
- */
-class ConsoleLogEntry {
-    private String type;
-    private String message;
-    private Date timestamp;
-    
-    public ConsoleLogEntry(String type, String message, Date timestamp) {
-        this.type = type;
-        this.message = message;
-        this.timestamp = timestamp;
+    /**
+     * Model class for console log entries
+     */
+    class ConsoleLogEntry {
+        private String type;
+        private String message;
+        private Date timestamp;
+        
+        public ConsoleLogEntry(String type, String message, Date timestamp) {
+            this.type = type;
+            this.message = message;
+            this.timestamp = timestamp;
+        }
+        
+        public String getType() {
+            return type;
+        }
+        
+        public String getMessage() {
+            return message;
+        }
+        
+        public Date getTimestamp() {
+            return timestamp;
+        }
+        
+        public String getFormattedTime() {
+            SimpleDateFormat sdf = new SimpleDateFormat("HH:mm:ss.SSS", Locale.getDefault());
+            return sdf.format(timestamp);
+        }
     }
-    
-    public String getType() {
-        return type;
-    }
-    
-    public String getMessage() {
-        return message;
-    }
-    
-    public Date getTimestamp() {
-        return timestamp;
-    }
-    
-    public String getFormattedTime() {
-        SimpleDateFormat sdf = new SimpleDateFormat("HH:mm:ss.SSS", Locale.getDefault());
-        return sdf.format(timestamp);
-    }
-}
 
-/**
- * Adapter for displaying console logs in a RecyclerView
- */
-class ConsoleLogAdapter extends RecyclerView.Adapter<ConsoleLogAdapter.LogViewHolder> {
-    private List<ConsoleLogEntry> logEntries;
-    
-    public ConsoleLogAdapter(List<ConsoleLogEntry> logEntries) {
-        this.logEntries = logEntries;
-    }
-    
-    @NonNull
-    @Override
-    public LogViewHolder onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
-        Context context = parent.getContext();
-        LinearLayout logLayout = new LinearLayout(context);
-        logLayout.setOrientation(LinearLayout.VERTICAL);
-        logLayout.setPadding(16, 8, 16, 8);
-        logLayout.setLayoutParams(new ViewGroup.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT));
+    /**
+     * Adapter for displaying console logs in a RecyclerView
+     */
+    class ConsoleLogAdapter extends RecyclerView.Adapter<ConsoleLogAdapter.LogViewHolder> {
+        private List<ConsoleLogEntry> logEntries;
         
-        TextView logText = new TextView(context);
-        logText.setTextSize(14);
-        logText.setTypeface(Typeface.MONOSPACE);
-        logText.setLayoutParams(new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT));
+        public ConsoleLogAdapter(List<ConsoleLogEntry> logEntries) {
+            this.logEntries = logEntries;
+        }
         
-        TextView timestampText = new TextView(context);
-        timestampText.setTextSize(10);
-        timestampText.setTypeface(Typeface.MONOSPACE);
-        timestampText.setLayoutParams(new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT));
+        @NonNull
+        @Override
+        public LogViewHolder onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
+            Context context = parent.getContext();
+            
+            // Create main layout for log entry
+            LinearLayout logLayout = new LinearLayout(context);
+            logLayout.setOrientation(LinearLayout.VERTICAL);
+            logLayout.setPadding(16, 8, 16, 8);
+            
+            // Add divider at the bottom
+            View divider = new View(context);
+            divider.setBackgroundColor(Color.LTGRAY);
+            
+            // Create timestamp text view (smaller, at top)
+            TextView timestampText = new TextView(context);
+            timestampText.setTextSize(10);
+            timestampText.setTypeface(Typeface.MONOSPACE);
+            timestampText.setTextColor(Color.GRAY);
+            
+            // Create message text view (larger, below timestamp)
+            TextView logText = new TextView(context);
+            logText.setTextSize(14);
+            logText.setTypeface(Typeface.MONOSPACE);
+            
+            // Add views to layout
+            logLayout.addView(timestampText);
+            logLayout.addView(logText);
+            
+            // Create layout parameters
+            LinearLayout.LayoutParams dividerParams = new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, 
+                    1); // 1px height
+            dividerParams.setMargins(0, 8, 0, 0);
+            
+            logLayout.addView(divider, dividerParams);
+            
+            // Set layout parameters for the main layout
+            ViewGroup.LayoutParams layoutParams = new ViewGroup.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT);
+            logLayout.setLayoutParams(layoutParams);
+            
+            return new LogViewHolder(logLayout, logText, timestampText);
+        }
         
-        logLayout.addView(timestampText);
-        logLayout.addView(logText);
+        @Override
+        public void onBindViewHolder(@NonNull LogViewHolder holder, int position) {
+            ConsoleLogEntry entry = logEntries.get(position);
+            holder.logText.setText(entry.getMessage());
+            holder.timestampText.setText(entry.getFormattedTime() + " [" + entry.getType() + "]");
+            
+            // Set color based on log type
+            switch (entry.getType().toLowerCase()) {
+                case "error":
+                    holder.logText.setTextColor(Color.RED);
+                    break;
+                case "warn":
+                    holder.logText.setTextColor(Color.rgb(255, 165, 0)); // Orange
+                    break;
+                case "info":
+                    holder.logText.setTextColor(Color.BLUE);
+                    break;
+                case "debug":
+                    holder.logText.setTextColor(Color.DKGRAY);
+                    break;
+                default:
+                    holder.logText.setTextColor(Color.BLACK);
+                    break;
+            }
+        }
         
-        return new LogViewHolder(logLayout, logText, timestampText);
-    }
-    
-    @Override
-    public void onBindViewHolder(@NonNull LogViewHolder holder, int position) {
-        ConsoleLogEntry entry = logEntries.get(position);
-        holder.logText.setText(entry.getMessage());
-        holder.timestampText.setText(entry.getFormattedTime() + " [" + entry.getType() + "]");
+        @Override
+        public int getItemCount() {
+            return logEntries.size();
+        }
         
-        // Set color based on log type
-        switch (entry.getType()) {
-            case "error":
-                holder.logText.setTextColor(Color.RED);
-                break;
-            case "warn":
-                holder.logText.setTextColor(Color.rgb(255, 165, 0)); // Orange
-                break;
-            case "info":
-                holder.logText.setTextColor(Color.BLUE);
-                break;
-            default:
-                holder.logText.setTextColor(Color.BLACK);
-                break;
+        class LogViewHolder extends RecyclerView.ViewHolder {
+            TextView logText;
+            TextView timestampText;
+            
+            public LogViewHolder(View itemView, TextView logText, TextView timestampText) {
+                super(itemView);
+                this.logText = logText;
+                this.timestampText = timestampText;
+            }
         }
     }
     
-    @Override
-    public int getItemCount() {
-        return logEntries.size();
+    /**
+     * Direct test of the console log functionality
+     */
+    private void testConsoleLogDirectly() {
+        if (webView == null) return;
+        
+        Log.d(TAG, "Testing console log directly");
+        String testScript = "console.log('Direct test message from testConsoleLogDirectly()');";
+        webView.evaluateJavascript(testScript, null);
     }
     
-    static class LogViewHolder extends RecyclerView.ViewHolder {
-        TextView logText;
-        TextView timestampText;
-        
-        public LogViewHolder(View itemView, TextView logText, TextView timestampText) {
-            super(itemView);
-            this.logText = logText;
-            this.timestampText = timestampText;
+    /**
+     * Clear the current content (source or console logs) based on active tab
+     */
+    private void clearContent() {
+        // Determine which tab is active and clear appropriate content
+        if (segmentedControl != null) {
+            if (segmentedControl.getCheckedRadioButtonId() == R.id.tab_source) {
+                // Nothing to clear in source view - it's read-only
+                Toast.makeText(this, "Source view is read-only", Toast.LENGTH_SHORT).show();
+            } else {
+                // Clear console logs
+                consoleLogEntries.clear();
+                if (consoleLogAdapter != null) {
+                    consoleLogAdapter.notifyDataSetChanged();
+                }
+                Toast.makeText(this, "Console logs cleared", Toast.LENGTH_SHORT).show();
+            }
         }
+    }
+    
+    /**
+     * Copy the current content (source or console logs) to clipboard based on active tab
+     */
+    private void copyContent() {
+        // Determine which tab is active and copy appropriate content
+        if (segmentedControl != null) {
+            if (segmentedControl.getCheckedRadioButtonId() == R.id.tab_source) {
+                copySourceToClipboard();
+            } else {
+                copyConsoleLogsToClipboard();
+            }
+        }
+    }
+    
+    /**
+     * Copy source code to clipboard
+     */
+    private void copySourceToClipboard() {
+        if (sourceCodeText != null && sourceCodeText.getText() != null) {
+            String sourceCode = sourceCodeText.getText().toString();
+            if (sourceCode.isEmpty()) {
+                Toast.makeText(this, "No source code to copy", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            
+            ClipboardManager clipboard = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
+            ClipData clip = ClipData.newPlainText("HTML Source", sourceCode);
+            clipboard.setPrimaryClip(clip);
+            Toast.makeText(this, "Source code copied to clipboard", Toast.LENGTH_SHORT).show();
+        }
+    }
+    
+    /**
+     * Copy console logs to clipboard
+     */
+    private void copyConsoleLogsToClipboard() {
+        if (consoleLogEntries == null || consoleLogEntries.isEmpty()) {
+            Toast.makeText(this, "No console logs to copy", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        
+        StringBuilder logs = new StringBuilder();
+        for (ConsoleLogEntry entry : consoleLogEntries) {
+            logs.append(entry.getFormattedTime())
+                .append(" [").append(entry.getType()).append("] ")
+                .append(entry.getMessage())
+                .append("\n");
+        }
+        
+        ClipboardManager clipboard = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
+        ClipData clip = ClipData.newPlainText("Console Logs", logs.toString());
+        clipboard.setPrimaryClip(clip);
+        Toast.makeText(this, "Console logs copied to clipboard", Toast.LENGTH_SHORT).show();
     }
 }
