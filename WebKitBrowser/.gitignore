@@ -89,8 +89,9 @@ Icon
 ._*
 
 # XcodeGen
-*.xcodeproj
-*.xcworkspace
+# Files below are now tracked in git
+# *.xcodeproj
+# *.xcworkspace
 
 # SwiftLint
 .swiftlint-report.json
