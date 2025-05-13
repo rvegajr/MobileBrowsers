@@ -173,21 +173,17 @@ We welcome contributions from the community! If you're interested in contributin
 
 ### Opening the Projects
 
-Both projects can be opened directly by clicking on their respective project files:
+Both iOS and Android projects are ready to use immediately after cloning the repository!
 
 #### Opening WebKitBrowser (iOS)
 
-1. **Double-click** the `WebKitBrowser/WebKitBrowser.xcworkspace` file to open it in Xcode
+1. **Double-click** the `WebKitBrowser/WebKitBrowser.xcworkspace` file
+   - This will open the project directly in Xcode
+   - All project settings and dependencies are pre-configured
 
 2. **Run in Xcode**:
    - Select your target device/simulator
    - Press ⌘R to build and run
-
-> **Note:** If you've just cloned the repository and the `.xcworkspace` file doesn't exist yet, you'll need to install the CocoaPods dependencies first:
-> ```bash
-> cd WebKitBrowser
-> pod install
-> ```
 
 #### Opening WebViewBrowser (Android)
 
@@ -196,12 +192,22 @@ Both projects can be opened directly by clicking on their respective project fil
 2. Select **Open an existing project**
 
 3. Navigate to and select the `WebViewBrowser` directory
+   - The project will open and configure itself automatically
+   - Gradle will sync and download any required dependencies
 
 4. **Build and Run**:
    - Select your target device/emulator
    - Click Run (▶) to build and deploy
 
 > **Tip:** You can also double-click the project directory in Finder while holding the Command key and selecting "Open With > Android Studio"
+
+### Ready to Use!
+
+Both projects are pre-configured with all necessary build files and dependencies:
+- iOS: Includes `.xcworkspace` and `.xcodeproj` files
+- Android: Includes Gradle wrapper and project configuration
+
+No additional setup steps required - just clone, open, and start coding!
 
 ### Verify Builds Script
 
