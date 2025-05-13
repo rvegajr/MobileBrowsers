@@ -171,53 +171,44 @@ We welcome contributions from the community! If you're interested in contributin
 
 ## Getting Started
 
-### Setting Up WebKitBrowser (iOS)
+### Opening the Projects
 
-1. **Install dependencies**:
+Both projects can be opened directly by clicking on their respective project files:
 
-   ```bash
-   cd WebKitBrowser
-   /bin/zsh -i -c 'source ~/.zshrc && pod install'
-   ```
+#### Opening WebKitBrowser (iOS)
 
-2. **Open the project**:
+1. **Double-click** the `WebKitBrowser/WebKitBrowser.xcworkspace` file to open it in Xcode
 
-   ```bash
-   /bin/zsh -i -c 'source ~/.zshrc && open WebKitBrowser.xcworkspace'
-   ```
-
-3. **Run in Xcode**:
-
+2. **Run in Xcode**:
    - Select your target device/simulator
    - Press ⌘R to build and run
 
-4. **Using automation scripts**:
+> **Note:** If you've just cloned the repository and the `.xcworkspace` file doesn't exist yet, you'll need to install the CocoaPods dependencies first:
+> ```bash
+> cd WebKitBrowser
+> pod install
+> ```
 
-   ```bash
-   cd WebKitBrowser
-   /bin/zsh -i -c 'source ~/.zshrc && ./scripts/build.sh --init --debug'
-   ```
+#### Opening WebViewBrowser (Android)
 
-### Setting Up WebViewBrowser (Android)
+1. **Open Android Studio**
 
-1. **Open in Android Studio**:
+2. Select **Open an existing project**
 
-   ```bash
-   cd WebViewBrowser
-   /bin/zsh -i -c 'source ~/.zshrc && open -a "Android Studio" .'
-   ```
+3. Navigate to and select the `WebViewBrowser` directory
 
-2. **Build and Run**:
-
+4. **Build and Run**:
    - Select your target device/emulator
    - Click Run (▶) to build and deploy
+
+> **Tip:** You can also double-click the project directory in Finder while holding the Command key and selecting "Open With > Android Studio"
 
 ### Verify Builds Script
 
 For quick verification that both iOS and Android projects build successfully, use the included verification script:
 
 ```bash
-/bin/zsh -i -c 'source ~/.zshrc && ./verify_builds.sh'
+./verify_builds.sh
 ```
 
 This script:
